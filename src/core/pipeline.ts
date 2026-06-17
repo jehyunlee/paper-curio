@@ -1,6 +1,6 @@
 import { getPaperMeta } from "../apis/zotero/item"
 import { SYSTEM_PROMPT, buildUserPrompt } from "../prompts/review-prompt"
-import { generateReview, completeText } from "../llm"
+import { generateReview } from "../llm"
 import { generateConnections } from "../llm/connections"
 import { resolveOutputTarget } from "./pc-discovery"
 import {
@@ -23,6 +23,8 @@ import {
 import { buildReviewHtml, ConnItem } from "../render/reviewHtml"
 import { extractText, buildTextMd } from "../extract/text"
 import { extractFigures } from "../extract/figures"
+import { getPdfAttachmentKey } from "../extract/pdfjs"
+import { getItemTopics } from "./categorize"
 import { buildOriginalityMarkdown } from "../extract/originality"
 import { joinPath, makeDir, writeText } from "../utils/fs"
 import { pipeline as log } from "../utils/loggers"
@@ -125,24 +127,26 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     await writeText(joinPath(slugDir, "text.md"), buildTextMd(extracted.text))
   }
 
-  // 8) originality.md (rule-based + LLM fallback)
+  // topic은 Zotero collection 기반. category는 paper-curation classify에 위임.
+  const topics = getItemTopics(item)
+  const finalTopics = topics.length > 0 ? topics : ["uncategorized"]
+
+  // 8) originality.md (원본 topic_modeling.py 경로: rule-based → "title. essence". LLM 없음, 헤더 없음)
   try {
-    const originality = await buildOriginalityMarkdown(
-      {
-        paperNumber,
-        title: meta.title,
-        textMd: extracted.text,
-        abstract: meta.abstract,
-      },
-      (prompt) => completeText(prompt),
-    )
+    const originality = await buildOriginalityMarkdown({
+      paperNumber,
+      title: meta.title,
+      textMd: extracted.text,
+      abstract: meta.abstract,
+      essence: payload.essence,
+    })
     await writeText(joinPath(slugDir, "originality.md"), originality)
   } catch (e) {
     log("originality.md 생성 실패(무시)", e)
   }
 
-  // 9) review.md (figure 임베드 포함)
-  const reviewArgs = { meta, payload, provider, hasPdf, reviewDate, figures }
+  // 9) review.md (figure 임베드 + topic 포함)
+  const reviewArgs = { meta, payload, provider, hasPdf, reviewDate, figures, topics: finalTopics }
   await writeText(joinPath(slugDir, "review.md"), buildReviewMarkdown(reviewArgs))
 
   // 10) index.html (review_to_html.py 포팅 렌더러 — 다른 논문과 서식 통일)
@@ -164,13 +168,15 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     },
     body: buildReviewBody(reviewArgs),
     slug,
-    zoteroKey: meta.key,
+    zoteroKey: (await getPdfAttachmentKey(item)) || meta.key,
     connections,
   })
   const indexHtmlPath = joinPath(slugDir, "index.html")
   await writeText(indexHtmlPath, html)
 
   // 11) _papers_index.json (덮어쓰기면 기존 분류 메타 보존)
+  // topic은 Zotero collection에서 부여. category/sub_category는 비워두고
+  // paper-curation 다음 빌드의 classify_papers.py(HDBSCAN)가 정확히 채우도록 위임.
   const score = overallScore(payload)
   const fresh: PaperIndexEntry = {
     slug,
@@ -178,8 +184,8 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     authors: meta.authors,
     date: meta.date,
     doi: meta.doi,
-    topics: ["uncategorized"],
-    primary_topic: "uncategorized",
+    topics: finalTopics,
+    primary_topic: finalTopics[0],
     classifications: {},
     score,
     essence: payload.essence,
@@ -187,7 +193,7 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     has_figures: figures.length > 0,
     review_date: reviewDate,
     zotero_item_key: meta.key,
-    tags: ["paper", "papercurio-generated"],
+    tags: ["paper", "papercurio-generated", ...finalTopics],
   }
   await upsertEntry(target.papersDir, mergeEntry(existing, fresh))
 

@@ -17,10 +17,11 @@ import triggers from "./originality_triggers.json"
 // ── Public contract ──
 
 export interface OriginalityInput {
-  paperNumber: number // 슬러그 앞 NNN (헤더 '# {N}번 논문'에 사용)
+  paperNumber: number // (미사용 — 원본은 헤더 없음. 호환 위해 남겨둠)
   title: string
   textMd: string // text.md 본문 (PDF 평문)
   abstract?: string
+  essence?: string // 최종 fallback "title. essence" 용 (topic_modeling.py 동일)
 }
 
 // ── Trigger loading ──
@@ -313,7 +314,6 @@ function _updateTriggers(_loaded: LoadedTriggers, _newTriggers: string[]): numbe
 async function extractOriginalityBody(
   input: OriginalityInput,
   loaded: LoadedTriggers,
-  llmFallback?: (prompt: string) => Promise<string>,
 ): Promise<string> {
   const full = input.textMd || ""
 
@@ -328,44 +328,21 @@ async function extractOriginalityBody(
   }
   if (result) return result
 
-  // 2. LLM fallback (only if a callback is injected). Uses the abstract window
-  //    to keep the prompt small, matching topic_modeling's first-1000-chars input.
-  if (llmFallback) {
-    const llmInput = window || full
-    const [llmResult, newTriggers] = await llmFallbackExtract(llmInput, llmFallback)
-    // 3. Self-learning — stubbed no-op.
-    _updateTriggers(loaded, newTriggers)
-    if (llmResult) return llmResult
-  }
-
-  // Minimal fallback: abstract / first sentence / title.
-  // (topic_modeling.py uses `title. essence`; essence isn't available here, so we
-  //  fall back to abstract, then the first usable sentence, then the title.)
-  const abstract = (input.abstract || "").trim()
-  if (abstract) return _strip_metadata_leaks(abstract)
-
-  const sentences = splitSentences(full)
-  if (sentences.length) return _strip_metadata_leaks(sentences[0])
-
-  return _strip_metadata_leaks(input.title || "")
+  // 2. 최종 fallback: "title. essence" (topic_modeling.py 라인 99-100과 동일).
+  //    원본은 여기서 LLM을 호출하지 않는다 → 그래서 출력이 짧다.
+  const title = (input.title || "").trim()
+  const essence = (input.essence || "").trim()
+  return _strip_metadata_leaks(`${title}. ${essence}`.trim())
 }
 
 /**
- * Build the full originality.md content (header + extracted body).
- *
- * @param input        Paper number, title, text.md body, optional abstract.
- * @param llmFallback  Optional async callback that takes the fully-rendered
- *                     prompt and returns the raw LLM response text. When absent,
- *                     only rule-based extraction (plus the minimal abstract/
- *                     first-sentence fallback) is used.
- * @returns            The complete originality.md content as a string.
+ * originality.md 내용 생성. **헤더 없음**, 본문만 (topic_modeling.py와 동일).
+ * rule-based(abstract 창→전체) → "title. essence" fallback. LLM 호출 없음.
  */
 export async function buildOriginalityMarkdown(
   input: OriginalityInput,
-  llmFallback?: (prompt: string) => Promise<string>,
 ): Promise<string> {
   const loaded = loadTriggers()
-  const body = await extractOriginalityBody(input, loaded, llmFallback)
-  const header = `# ${input.paperNumber}번 논문`
-  return `${header}\n\n${body}\n`
+  const body = await extractOriginalityBody(input, loaded)
+  return body
 }

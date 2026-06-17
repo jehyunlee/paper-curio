@@ -56,6 +56,24 @@ export async function pdfFilePath(item: Zotero.Item): Promise<string | null> {
   }
 }
 
+/**
+ * PDF 첨부의 Zotero key (zotero://open-pdf/library/items/{KEY} 용).
+ * open-pdf는 **부모 item이 아니라 attachment 키**를 요구한다. 없으면 빈 문자열.
+ */
+export async function getPdfAttachmentKey(item: Zotero.Item): Promise<string> {
+  try {
+    const best = await item.getBestAttachment()
+    if (best && (best as any).isPDFAttachment?.()) return best.key
+    for (const id of item.getAttachments()) {
+      const att = Zotero.Items.get(id) as any
+      if (att?.isPDFAttachment?.()) return att.key
+    }
+  } catch (e) {
+    log("getPdfAttachmentKey 실패", e)
+  }
+  return ""
+}
+
 /** PDF 파일을 pdf.js 문서로 연다 (없으면 null). */
 export async function openPdf(
   item: Zotero.Item,

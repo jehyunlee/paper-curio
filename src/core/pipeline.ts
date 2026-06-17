@@ -10,6 +10,7 @@ import {
   mergeEntry,
   isPaperCurioEntry,
   buildConnectionCandidates,
+  readPapersIndex,
   PaperIndexEntry,
 } from "./papers-index"
 import { getPref } from "../utils/prefs"
@@ -23,6 +24,7 @@ import {
   extractTextViaBridge,
   writeReviewViaBridge,
   extractOriginalityViaBridge,
+  generateConnectionsViaBridge,
 } from "../extract/pybridge"
 import { getPdfAttachmentKey, pdfFilePath } from "../extract/pdfjs"
 import { getItemTopics } from "./categorize"
@@ -158,32 +160,53 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     log("originality.md 생성 실패(무시)", e)
   }
 
-  // 8) 연관 논문 (TS — 단일 논문 후보 풀 LLM 판정. 코퍼스 임베딩 불요)
-  let connections: ConnItem[] = []
-  try {
-    const candidates = await buildConnectionCandidates(target.papersDir, {
-      slug,
-      title: meta.title,
-      authors: meta.authors,
-      date: meta.date,
-    })
-    const conns = await generateConnections(
-      { title: meta.title, essence: parsed.essence },
-      candidates,
-    )
-    connections = conns.map((c) => ({
-      relation: c.relation,
-      slug: c.slug,
-      title: c.title,
-      reason: c.reason,
-    }))
-  } catch (e) {
-    log("connections 생성 실패(무시)", e)
-  }
-
   // topic은 Zotero collection 기반. category는 paper-curation classify에 위임.
   const topics = getItemTopics(item)
   const finalTopics = topics.length > 0 ? topics : ["uncategorized"]
+  const primaryTopic = finalTopics[0]
+
+  // 8) 연관 논문 — 원본 specter2/compute_related/generate/sync(py312) 우선.
+  //    캐시 있는 paper-curation 토픽(ai4s 등)만 동작 → 그 외/실패 시 TS 단일논문 LLM 폴백.
+  let connections: ConnItem[] = []
+  const bridgeConns = await generateConnectionsViaBridge(
+    primaryTopic,
+    slug,
+    slugDir,
+    { ...meta, essence: parsed.essence },
+    target.root,
+  )
+  if (bridgeConns !== null) {
+    // 원본 반환엔 title 없음 → 인덱스에서 보강
+    const idx = await readPapersIndex(target.papersDir)
+    const titleBySlug = new Map(idx.map((e) => [e.slug, e.title]))
+    connections = bridgeConns.map((c) => ({
+      ...c,
+      title: c.title || titleBySlug.get(c.slug) || c.slug,
+    }))
+    log(`connections 원본(${primaryTopic}): ${connections.length}건`)
+  } else {
+    try {
+      const candidates = await buildConnectionCandidates(target.papersDir, {
+        slug,
+        title: meta.title,
+        authors: meta.authors,
+        date: meta.date,
+      })
+      const conns = await generateConnections(
+        { title: meta.title, essence: parsed.essence },
+        candidates,
+      )
+      connections = conns.map((c) => ({
+        relation: c.relation,
+        slug: c.slug,
+        title: c.title,
+        reason: c.reason,
+      }))
+      log(`connections TS 폴백: ${connections.length}건`)
+    } catch (e) {
+      log("connections TS 폴백 실패(무시)", e)
+    }
+  }
 
   // 9) index.html — reviewHtml.ts(review_to_html 포팅)로 review.md를 렌더 + connections 주입.
   const html = buildReviewHtml({

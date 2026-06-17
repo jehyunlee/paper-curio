@@ -3,6 +3,7 @@ import { getAnthropicKey } from "../utils/env"
 import { joinPath, writeText } from "../utils/fs"
 import { fs as log } from "../utils/loggers"
 import type { PaperMeta } from "../apis/zotero/item"
+import type { ConnItem } from "../render/reviewHtml"
 
 declare const ChromeUtils: any
 declare const PathUtils: any
@@ -99,6 +100,73 @@ def main():
             orig = ("%s. %s" % (meta.get("title", ""), meta.get("essence", ""))).strip()
         open(os.path.join(slug_dir, "originality.md"), "w", encoding="utf-8").write(orig)
         print(json.dumps({"ok": bool(orig)})); return
+
+    if cmd == "connections":
+        # 원본 specter2 임베딩 + compute_related_candidates + generate_connections_from_candidates + sync.
+        # outgoing만 (신규 논문 → 관련 논문). incoming은 paper-curation 전체 connections run에 위임.
+        slug, slug_dir, topic, meta_json = sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
+        try:
+            import numpy as np
+            meta = json.load(open(meta_json, encoding="utf-8"))
+            docs_root = os.path.join(pc_root, "docs")
+            topic_dir = os.path.join(docs_root, topic)
+            cache_path = os.path.join(topic_dir, "_embeddings_cache.json")
+            if not os.path.exists(cache_path):
+                print(json.dumps({"ok": False, "reason": "no_cache", "connections": []})); return
+            cache = json.load(open(cache_path, encoding="utf-8"))
+            cached_slugs = list(cache["slugs"])
+            cached_emb = np.asarray(cache["embeddings"], dtype=np.float32)
+
+            # 신규 논문 임베드 텍스트: originality.md 우선, 없으면 "title. essence"
+            op = os.path.join(slug_dir, "originality.md")
+            if os.path.exists(op):
+                text = open(op, encoding="utf-8").read().strip()
+            else:
+                text = ("%s. %s" % (meta.get("title", ""), meta.get("essence", ""))).strip()
+
+            from lib import specter2_embed
+            tag = getattr(specter2_embed, "EMBED_TAG", None)
+            if tag and cache.get("embed_model") and cache["embed_model"] != tag:
+                print(json.dumps({"ok": False, "reason": "tag_mismatch", "connections": []})); return
+            new_vec = specter2_embed.embed_texts([text])  # (1,768)
+
+            # 신규 벡터를 코퍼스에 splice (재실행 시 dict-merge로 교체, 정렬)
+            slug_to_emb = dict(zip(cached_slugs, cached_emb))
+            slug_to_emb[slug] = new_vec[0]
+            slugs = sorted(slug_to_emb.keys())
+            embeddings = np.asarray([slug_to_emb[s] for s in slugs], dtype=np.float32)
+
+            from topic_modeling import (
+                compute_related_candidates, generate_connections_from_candidates,
+            )
+            all_cand = compute_related_candidates(embeddings, slugs, top_k=5)
+            cand = {slug: all_cand.get(slug, [])}
+            if not cand[slug]:
+                print(json.dumps({"ok": True, "connections": []})); return
+
+            idx_path = os.path.join(docs_root, "papers", "_papers_index.json")
+            all_papers = json.load(open(idx_path, encoding="utf-8"))
+            wanted = set(s for s, _ in cand[slug]) | set([slug])
+            topic_papers = [p for p in all_papers if p.get("slug") in wanted]
+            if not any(p.get("slug") == slug for p in topic_papers):
+                topic_papers.append({"slug": slug, "title": meta.get("title", ""),
+                                     "essence": meta.get("essence", ""), "topics": [topic]})
+
+            from anthropic import Anthropic
+            client = Anthropic(timeout=180.0, max_retries=4)  # ANTHROPIC_API_KEY env
+            conns = generate_connections_from_candidates(
+                cand, topic_papers, client, priority_slugs=set([slug]))
+            out = conns.get(slug, [])
+
+            try:
+                from lib.connections import sync_topic_connections
+                sync_topic_connections(conns, topic, slugs, topic_dir, log=lambda *a: None)
+            except Exception:
+                pass  # 글로벌 동기화 실패해도 outgoing은 반환
+
+            print(json.dumps({"ok": True, "connections": out})); return
+        except Exception as e:
+            print(json.dumps({"ok": False, "reason": "error:%s" % e, "connections": []})); return
 
     print(json.dumps({"error": "unknown cmd: %s" % cmd}))
 
@@ -264,6 +332,50 @@ export async function writeReviewViaBridge(
   } catch (e) {
     log("writeReviewViaBridge 예외", e)
     return false
+  }
+}
+
+/**
+ * 원본 specter2/compute_related/generate/sync로 연관 논문(outgoing) 생성.
+ * 캐시 없는 topic·tag 불일치·키 없음·실패 → null (호출부가 TS 폴백).
+ * 반환 ConnItem은 title이 비어있을 수 있음(호출부에서 인덱스로 보강).
+ */
+export async function generateConnectionsViaBridge(
+  topic: string,
+  slug: string,
+  slugDir: string,
+  meta: PaperMeta & { essence?: string },
+  pcRoot: string,
+): Promise<ConnItem[] | null> {
+  const key = getAnthropicKey()
+  if (!key || !pcRoot || !topic) return null
+  try {
+    const metaPath = joinPath(slugDir, "_pc_conn.json")
+    await writeText(metaPath, JSON.stringify(meta))
+    const script = await ensureBridgeScript()
+    const r = await runPython(
+      [script, pcRoot, "connections", slug, slugDir, topic, metaPath],
+      { ANTHROPIC_API_KEY: key },
+    )
+    if (!r.ok) {
+      log("connections 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
+      return null
+    }
+    const j = lastJson(r.stdout)
+    if (!j.ok) {
+      log("connections 브리지 ok=false", j.reason || "")
+      return null
+    }
+    const arr: any[] = j.connections || []
+    return arr.map((c) => ({
+      relation: c.relation,
+      slug: c.slug,
+      title: c.title || "",
+      reason: c.reason || "",
+    }))
+  } catch (e) {
+    log("generateConnectionsViaBridge 예외", e)
+    return null
   }
 }
 

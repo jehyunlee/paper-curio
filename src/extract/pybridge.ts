@@ -26,6 +26,9 @@ function pythonPath(): string {
  *  - figures <pdf> <slug_dir>   → run_update_force.extract_figures (+ raw를 .pc_figs.json에 보관)
  *  - text    <pdf> <slug_dir>   → run_update_force.extract_text
  *  - review  <slug_dir> <meta_json> → _to_item(meta) + run_update_force.write_review (text.md·figures 사용)
+ *  - originality <slug_dir> <meta_json> → originality_extractor._extract_rule_based
+ *  - connections <slug> <slug_dir> <topic> <meta_json> → specter2/compute_related/generate/sync
+ *  - inject_frontmatter <slug> <topic> → inject_frontmatter.py build_frontmatter/…/inject_into_review
  */
 const BRIDGE_PY = `import sys, os, json
 
@@ -167,6 +170,35 @@ def main():
             print(json.dumps({"ok": True, "connections": out})); return
         except Exception as e:
             print(json.dumps({"ok": False, "reason": "error:%s" % e, "connections": []})); return
+
+    if cmd == "inject_frontmatter":
+        # 원본 inject_frontmatter.py의 per-paper 함수를 그대로 호출해 review.md에
+        # schema-v1 frontmatter + Related Papers 섹션을 주입(본체 풀런과 동일).
+        # PDF 조회는 --skip-zotero 동작과 동일하게 생략.
+        slug, topic = sys.argv[3], sys.argv[4]
+        try:
+            import inject_frontmatter as inj
+            idx_path = os.path.join(inj.PAPERS_DIR, "_papers_index.json")
+            all_papers = json.load(open(idx_path, encoding="utf-8"))
+            paper = next((p for p in all_papers if p.get("slug") == slug), None)
+            if paper is None:
+                print(json.dumps({"ok": False, "reason": "not_in_index"})); return
+            md_path = os.path.join(inj.PAPERS_DIR, slug, "review.md")
+            if not os.path.exists(md_path):
+                print(json.dumps({"ok": False, "reason": "no_review"})); return
+            conn_path = os.path.join(pc_root, "docs", topic, "_paper_connections.json")
+            connections = {}
+            if os.path.exists(conn_path):
+                try: connections = json.load(open(conn_path, encoding="utf-8"))
+                except Exception: connections = {}
+            fm = inj.build_frontmatter(paper, connections, "", topic)
+            fm_yaml = inj.frontmatter_to_yaml(fm)
+            related = inj.build_related_section(slug, connections)
+            inj.inject_into_review(md_path, fm_yaml, related)
+            head = open(md_path, encoding="utf-8").read(3)
+            print(json.dumps({"ok": head.startswith("---")})); return
+        except Exception as e:
+            print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
 
     print(json.dumps({"error": "unknown cmd: %s" % cmd}))
 
@@ -402,6 +434,33 @@ export async function extractOriginalityViaBridge(
     return !!lastJson(r.stdout).ok
   } catch (e) {
     log("extractOriginalityViaBridge 예외", e)
+    return false
+  }
+}
+
+/**
+ * 원본 inject_frontmatter.py 함수로 review.md에 schema-v1 frontmatter +
+ * Related Papers 섹션 주입(본체 풀런과 동일 출력). _papers_index.json에 해당
+ * 엔트리가 먼저 있어야 함. paper-curation/모듈 없으면 false (review.md는 그대로).
+ */
+export async function injectFrontmatterViaBridge(
+  slug: string,
+  topic: string,
+  pcRoot: string,
+): Promise<boolean> {
+  if (!pcRoot || !slug || !topic) return false
+  try {
+    const script = await ensureBridgeScript()
+    const r = await runPython([script, pcRoot, "inject_frontmatter", slug, topic])
+    if (!r.ok) {
+      log("inject_frontmatter 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
+      return false
+    }
+    const j = lastJson(r.stdout)
+    if (!j.ok) log("inject_frontmatter ok=false", j.reason || "")
+    return !!j.ok
+  } catch (e) {
+    log("injectFrontmatterViaBridge 예외", e)
     return false
   }
 }

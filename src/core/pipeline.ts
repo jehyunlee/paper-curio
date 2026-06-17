@@ -25,6 +25,7 @@ import {
   writeReviewViaBridge,
   extractOriginalityViaBridge,
   generateConnectionsViaBridge,
+  injectFrontmatterViaBridge,
 } from "../extract/pybridge"
 import { getPdfAttachmentKey, pdfFilePath } from "../extract/pdfjs"
 import { getItemTopics } from "./categorize"
@@ -238,6 +239,7 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     topics: finalTopics,
     primary_topic: finalTopics[0],
     classifications: {},
+    scores: parsed.scores,
     score,
     essence: parsed.essence,
     has_pdf: hasPdf,
@@ -247,6 +249,16 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     tags: ["paper", "papercurio-generated", ...finalTopics],
   }
   await upsertEntry(target.papersDir, mergeEntry(existing, fresh))
+
+  // 10.5) review.md에 원본 frontmatter + Related Papers 주입 — 본체 풀런과 출력 일치.
+  //       _papers_index.json 기록 뒤 실행(build_frontmatter가 인덱스 엔트리를 읽음).
+  //       paper-curation/모듈 없으면 false → review.md는 본문만 유지(무시).
+  try {
+    const injected = await injectFrontmatterViaBridge(slug, primaryTopic, target.root)
+    log(`frontmatter 주입 ${injected ? "OK" : "skip"}`)
+  } catch (e) {
+    log("frontmatter 주입 실패(무시)", e)
+  }
 
   // 11) Zotero item 표시
   try {

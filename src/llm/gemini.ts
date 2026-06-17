@@ -48,7 +48,7 @@ export class GeminiProvider implements ReviewProvider {
     userPrompt: string,
   ): Promise<ReviewPayload> {
     const apiKey = getGeminiKey()
-    const modelName = getPrefStr("GEMINI_MODEL") || "gemini-2.0-flash"
+    const modelName = getPrefStr("GEMINI_MODEL") || "gemini-3.1-pro-preview"
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({
       model: modelName,

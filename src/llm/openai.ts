@@ -22,7 +22,7 @@ export class OpenAIProvider implements ReviewProvider {
     userPrompt: string,
   ): Promise<ReviewPayload> {
     const apiKey = getOpenAIKey()
-    const model = getPrefStr("OPENAI_MODEL") || "gpt-4o-mini"
+    const model = getPrefStr("OPENAI_MODEL") || "gpt-5"
     const client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true })
 
     const resp = await client.chat.completions.create({

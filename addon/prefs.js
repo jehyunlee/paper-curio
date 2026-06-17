@@ -5,10 +5,11 @@ pref("extensions.zotero.__addonRef__.ANTHROPIC_API_KEY", "")
 pref("extensions.zotero.__addonRef__.OPENAI_API_KEY", "")
 pref("extensions.zotero.__addonRef__.GEMINI_API_KEY", "")
 
-// Default models per provider
-pref("extensions.zotero.__addonRef__.ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-pref("extensions.zotero.__addonRef__.OPENAI_MODEL", "gpt-4o-mini")
-pref("extensions.zotero.__addonRef__.GEMINI_MODEL", "gemini-2.0-flash")
+// Default models per provider (paper-curation과 동일 기준)
+// Anthropic: paper-curation WRITE_REVIEW_MODEL. Gemini: 주력 모델. OpenAI: 참조 모델.
+pref("extensions.zotero.__addonRef__.ANTHROPIC_MODEL", "claude-haiku-4-5")
+pref("extensions.zotero.__addonRef__.OPENAI_MODEL", "gpt-5")
+pref("extensions.zotero.__addonRef__.GEMINI_MODEL", "gemini-3.1-pro-preview")
 
 // paper-curation discovery / output
 pref("extensions.zotero.__addonRef__.PAPER_CURATION_ROOT", "")

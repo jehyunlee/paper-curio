@@ -1,0 +1,65 @@
+{
+  "name": "paper-curio",
+  "version": "0.1.0",
+  "description": "Generate paper-curation reviews for Zotero items (Anthropic / OpenAI / Gemini)",
+  "config": {
+    "addonName": "Paper Curio",
+    "addonID": "paper-curio@jehyun.lee",
+    "addonRef": "papercurio",
+    "addonInstance": "PaperCurio",
+    "prefsPrefix": "extensions.zotero.papercurio",
+    "releasePage": "https://github.com/jehyunlee/paper-curio/releases",
+    "updaterdf": "https://raw.githubusercontent.com/jehyunlee/paper-curio/bootstrap/update.json"
+  },
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "zotero-plugin serve",
+    "build": "tsc --noEmit && zotero-plugin build",
+    "build-only": "zotero-plugin build",
+    "stop": "node scripts/stop.mjs",
+    "lint": "prettier --write . && eslint . --fix",
+    "release": "zotero-plugin release",
+    "update-deps": "npm update --save"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jehyunlee/paper-curio.git"
+  },
+  "author": "Jehyun Lee",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
+    "@esbuild-plugins/node-globals-polyfill": "^0.2.3",
+    "@esbuild-plugins/node-modules-polyfill": "^0.2.2",
+    "@google/generative-ai": "^0.21.0",
+    "marked": "^4.3.0",
+    "openai": "^4.79.1",
+    "zotero-plugin-toolkit": "^4.1.1"
+  },
+  "devDependencies": {
+    "@types/marked": "^5.0.1",
+    "@types/node": "^20.12.5",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.17.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.3.0",
+    "zotero-plugin-scaffold": "^0.1.7",
+    "zotero-types": "^3.0.1"
+  },
+  "prettier": {
+    "printWidth": 80,
+    "tabWidth": 2,
+    "endOfLine": "lf",
+    "semi": false,
+    "singleQuote": false,
+    "overrides": [
+      {
+        "files": ["*.xhtml"],
+        "options": {
+          "htmlWhitespaceSensitivity": "css"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+build
+logs
+node_modules
+zotero-cmd.json
+*.env
+*.log
+.DS_Store

@@ -1,0 +1,116 @@
+<linkset>
+  <html:link rel="localization" href="__addonRef__-preferences.ftl" />
+</linkset>
+<vbox
+  id="zotero-prefpane-__addonRef__"
+  onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', {window})"
+>
+  <groupbox>
+    <label><html:h2 data-l10n-id="pref-api-keys"></html:h2></label>
+    <description
+      data-l10n-id="pref-api-keys-hint"
+      style="opacity: 0.7; font-size: 11px"
+    ></description>
+
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-anthropic-key"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <html:input
+        type="password"
+        style="flex: 1"
+        preference="extensions.zotero.__addonRef__.ANTHROPIC_API_KEY"
+      ></html:input>
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-openai-key"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <html:input
+        type="password"
+        style="flex: 1"
+        preference="extensions.zotero.__addonRef__.OPENAI_API_KEY"
+      ></html:input>
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-gemini-key"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <html:input
+        type="password"
+        style="flex: 1"
+        preference="extensions.zotero.__addonRef__.GEMINI_API_KEY"
+      ></html:input>
+    </hbox>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="pref-models"></html:h2></label>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-anthropic-model"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <html:input
+        type="text"
+        style="flex: 1"
+        preference="extensions.zotero.__addonRef__.ANTHROPIC_MODEL"
+      ></html:input>
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-openai-model"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <html:input
+        type="text"
+        style="flex: 1"
+        preference="extensions.zotero.__addonRef__.OPENAI_MODEL"
+      ></html:input>
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-gemini-model"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <html:input
+        type="text"
+        style="flex: 1"
+        preference="extensions.zotero.__addonRef__.GEMINI_MODEL"
+      ></html:input>
+    </hbox>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="pref-output"></html:h2></label>
+    <description
+      data-l10n-id="pref-output-hint"
+      style="opacity: 0.7; font-size: 11px"
+    ></description>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-pc-root"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <html:input
+        type="text"
+        style="flex: 1"
+        preference="extensions.zotero.__addonRef__.PAPER_CURATION_ROOT"
+      ></html:input>
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-fallback-dir"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <html:input
+        type="text"
+        style="flex: 1"
+        preference="extensions.zotero.__addonRef__.OUTPUT_FALLBACK_DIR"
+      ></html:input>
+    </hbox>
+  </groupbox>
+</vbox>

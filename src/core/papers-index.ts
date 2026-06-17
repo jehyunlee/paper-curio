@@ -16,6 +16,18 @@ export interface PaperIndexEntry {
   review_date: string
   zotero_item_key: string
   tags: string[]
+  // paper-curation native 엔트리가 가진 추가 필드 (보존 대상)
+  [extra: string]: unknown
+}
+
+/** 제목 정규화 (소문자, 영숫자·한글만) — DOI/key 없는 중복 탐지용. */
+function normTitle(t: string): string {
+  return (t || "").toLowerCase().replace(/[^\w가-힣]/g, "")
+}
+
+/** Paper Curio가 생성한 엔트리인지 (vs paper-curation native). */
+export function isPaperCurioEntry(e: PaperIndexEntry): boolean {
+  return Array.isArray(e.tags) && e.tags.includes("papercurio-generated")
 }
 
 function indexPath(papersDir: string): string {
@@ -49,17 +61,55 @@ export async function nextNumber(papersDir: string): Promise<number> {
   return max + 1
 }
 
-/** DOI 또는 slug 기준 기존 엔트리 검색 (중복 방지/덮어쓰기 판단용). */
+/**
+ * 기존 엔트리 검색. 우선순위: zotero_item_key → DOI → 정규화 제목.
+ * (중복 방지/덮어쓰기 판단용)
+ */
 export async function findExisting(
   papersDir: string,
-  opts: { doi?: string; zoteroKey?: string },
+  opts: { doi?: string; zoteroKey?: string; title?: string },
 ): Promise<PaperIndexEntry | undefined> {
   const idx = await readPapersIndex(papersDir)
-  return idx.find(
-    (e) =>
-      (opts.doi && e.doi && e.doi === opts.doi) ||
-      (opts.zoteroKey && e.zotero_item_key === opts.zoteroKey),
-  )
+  const byKey =
+    opts.zoteroKey &&
+    idx.find((e) => e.zotero_item_key && e.zotero_item_key === opts.zoteroKey)
+  if (byKey) return byKey
+  const byDoi = opts.doi && idx.find((e) => e.doi && e.doi === opts.doi)
+  if (byDoi) return byDoi
+  if (opts.title) {
+    const nt = normTitle(opts.title)
+    if (nt) {
+      const byTitle = idx.find((e) => normTitle(e.title) === nt)
+      if (byTitle) return byTitle
+    }
+  }
+  return undefined
+}
+
+/**
+ * 덮어쓰기 시 인덱스 엔트리 머지: 기존 엔트리의 분류·figure 등 풍부한 필드는
+ * 보존하고, Paper Curio가 새로 만든 필드(score·essence·review_date·tags 등)만 갱신.
+ */
+export function mergeEntry(
+  existing: PaperIndexEntry | undefined,
+  fresh: PaperIndexEntry,
+): PaperIndexEntry {
+  if (!existing) return fresh
+  return {
+    ...existing, // classifications, topics, primary_topic, pdf_path, has_figures, text_md_sha256 등 보존
+    title: fresh.title,
+    authors: fresh.authors,
+    date: fresh.date,
+    doi: fresh.doi || existing.doi,
+    score: fresh.score,
+    essence: fresh.essence,
+    has_pdf: fresh.has_pdf,
+    review_date: fresh.review_date,
+    zotero_item_key: fresh.zotero_item_key || existing.zotero_item_key,
+    tags: Array.from(
+      new Set([...(existing.tags || []), ...fresh.tags]),
+    ),
+  }
 }
 
 /** 엔트리 추가/갱신 (slug·doi·zoteroKey 동일 항목은 교체). */

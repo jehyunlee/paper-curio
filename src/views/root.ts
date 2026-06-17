@@ -81,13 +81,21 @@ async function onReviewCommand(): Promise<void> {
       .show()
     try {
       const r = await processItem(item)
-      pw.changeLine({
-        type: "success",
-        text: getString("toast-done-one", {
-          args: { title: r.title, score: r.score, provider: r.provider },
-        }),
-        progress: 100,
-      })
+      if (r.skipped) {
+        pw.changeLine({
+          type: "default",
+          text: getString("toast-skipped", { args: { title: r.title } }),
+          progress: 100,
+        })
+      } else {
+        pw.changeLine({
+          type: "success",
+          text: getString("toast-done-one", {
+            args: { title: r.title, score: r.score, provider: r.provider },
+          }),
+          progress: 100,
+        })
+      }
     } catch (e: any) {
       pw.changeLine({
         type: "fail",
@@ -106,7 +114,8 @@ async function onReviewCommand(): Promise<void> {
   const N = targets.length
   let ok = 0,
     fail = 0,
-    abort = 0
+    abort = 0,
+    skip = 0
   let aborted = false
 
   const pw = new ztoolkit.ProgressWindow(
@@ -146,15 +155,25 @@ async function onReviewCommand(): Promise<void> {
     })
     try {
       const r = await processItem(item)
-      ok++
-      pw.changeLine({
-        idx: i,
-        type: "success",
-        text: getString("toast-done-line", {
-          args: { title: r.title, score: r.score },
-        }),
-        progress: 100,
-      })
+      if (r.skipped) {
+        skip++
+        pw.changeLine({
+          idx: i,
+          type: "default",
+          text: getString("toast-skipped", { args: { title: r.title } }),
+          progress: 100,
+        })
+      } else {
+        ok++
+        pw.changeLine({
+          idx: i,
+          type: "success",
+          text: getString("toast-done-line", {
+            args: { title: r.title, score: r.score },
+          }),
+          progress: 100,
+        })
+      }
     } catch (e: any) {
       fail++
       pw.changeLine({
@@ -170,7 +189,7 @@ async function onReviewCommand(): Promise<void> {
   }
 
   pw.changeHeadline(
-    getString("toast-batch-summary", { args: { ok, fail, abort } }),
+    getString("toast-batch-summary", { args: { ok, fail, skip, abort } }),
   )
   pw.startCloseTimer(10000)
 }

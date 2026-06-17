@@ -13,3 +13,6 @@ pref-output = Output Location
 pref-output-hint = If paper-curation is installed, leave the root path to auto-detect (or set it explicitly). Otherwise set a fallback dir; reviews are written under <dir>/docs/papers/.
 pref-pc-root = paper-curation root
 pref-fallback-dir = Fallback output dir
+pref-overwrite =
+    .label = Overwrite existing reviews
+pref-overwrite-hint = OFF (default): papers that already have a review are skipped. ON: existing review.md/index.html are overwritten (classification metadata preserved). Reviews created by Paper Curio itself are always regenerated regardless of this setting.

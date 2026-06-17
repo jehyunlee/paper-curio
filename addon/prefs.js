@@ -13,3 +13,6 @@ pref("extensions.zotero.__addonRef__.GEMINI_MODEL", "gemini-2.0-flash")
 // paper-curation discovery / output
 pref("extensions.zotero.__addonRef__.PAPER_CURATION_ROOT", "")
 pref("extensions.zotero.__addonRef__.OUTPUT_FALLBACK_DIR", "")
+
+// 기존 review 덮어쓰기 정책 (기본 OFF = 이미 review 있으면 건너뜀)
+pref("extensions.zotero.__addonRef__.OVERWRITE_EXISTING", false)

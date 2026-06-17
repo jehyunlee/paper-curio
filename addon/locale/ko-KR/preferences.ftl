@@ -13,3 +13,6 @@ pref-output = 출력 위치
 pref-output-hint = paper-curation이 설치돼 있으면 root 경로를 비워두면 자동 탐색합니다(직접 지정도 가능). 없으면 fallback 경로를 지정하세요 — 리뷰는 <경로>/docs/papers/ 아래에 생성됩니다.
 pref-pc-root = paper-curation 루트 경로
 pref-fallback-dir = Fallback 출력 경로
+pref-overwrite =
+    .label = 기존 review 덮어쓰기 (Overwrite existing)
+pref-overwrite-hint = OFF(기본): 이미 review가 있는 논문은 건너뜁니다. ON: 기존 review.md·index.html을 덮어씁니다(분류 등 메타데이터는 보존). Paper Curio가 직접 만든 review는 이 설정과 무관하게 항상 재생성됩니다.

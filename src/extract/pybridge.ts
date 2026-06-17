@@ -1,6 +1,8 @@
 import { getPrefStr } from "../utils/prefs"
+import { getAnthropicKey } from "../utils/env"
 import { joinPath, writeText } from "../utils/fs"
 import { fs as log } from "../utils/loggers"
+import type { PaperMeta } from "../apis/zotero/item"
 
 declare const ChromeUtils: any
 declare const PathUtils: any
@@ -8,10 +10,9 @@ declare const PathUtils: any
 export interface ExtractedFigure {
   n: number
   caption: string
-  file: string // figures/figN.png (review.md/index.html 참조 경로)
+  file: string // figures/figN.png
 }
 
-/** Mac 기본 py312 (paper-curation은 py3.12). 사용자는 PYTHON_PATH pref로 변경 가능. */
 const DEFAULT_PYTHON = "/opt/homebrew/Caskroom/miniconda/base/envs/py312/bin/python"
 
 function pythonPath(): string {
@@ -21,23 +22,67 @@ function pythonPath(): string {
 /**
  * paper-curation 원본 함수를 호출하는 얇은 브리지. 임의 로직 없이 원본을 import해 그대로 실행.
  * argv: <pc_root> <subcommand> <args...>
+ *  - figures <pdf> <slug_dir>   → run_update_force.extract_figures (+ raw를 .pc_figs.json에 보관)
+ *  - text    <pdf> <slug_dir>   → run_update_force.extract_text
+ *  - review  <slug_dir> <meta_json> → _to_item(meta) + run_update_force.write_review (text.md·figures 사용)
  */
 const BRIDGE_PY = `import sys, os, json
 
+def _to_item(meta):
+    # plugin PaperMeta(JSON) → write_review가 읽는 Zotero item dict
+    creators = []
+    for name in meta.get("authors", []):
+        parts = str(name).split()
+        if len(parts) >= 2:
+            creators.append({"firstName": " ".join(parts[:-1]), "lastName": parts[-1]})
+        elif parts:
+            creators.append({"firstName": "", "lastName": parts[0]})
+    return {
+        "title": meta.get("title", ""),
+        "creators": creators,
+        "date": meta.get("date", ""),
+        "DOI": meta.get("doi", ""),
+        "abstractNote": meta.get("abstract", ""),
+        "url": meta.get("url", ""),
+        "key": meta.get("key", ""),
+    }
+
 def main():
     if len(sys.argv) < 3:
-        print(json.dumps({"error": "usage: bridge.py <pc_root> <cmd> ..."}))
-        return
+        print(json.dumps({"error": "usage"})); return
     pc_root, cmd = sys.argv[1], sys.argv[2]
-    pipeline = os.path.join(pc_root, "pipeline")
-    sys.path.insert(0, pipeline)
+    sys.path.insert(0, os.path.join(pc_root, "pipeline"))
 
     if cmd == "figures":
         pdf_path, slug_dir = sys.argv[3], sys.argv[4]
-        import run_update_force as r  # 원본 모듈
+        import run_update_force as r
         figs = r.extract_figures(pdf_path, slug_dir) or []
-        print(json.dumps({"figures": figs}))
-        return
+        try:
+            json.dump(figs, open(os.path.join(slug_dir, ".pc_figs.json"), "w"))
+        except Exception:
+            pass
+        print(json.dumps({"figures": figs})); return
+
+    if cmd == "text":
+        pdf_path, slug_dir = sys.argv[3], sys.argv[4]
+        import run_update_force as r
+        r.extract_text(pdf_path, slug_dir)
+        p = os.path.join(slug_dir, "text.md")
+        print(json.dumps({"ok": os.path.exists(p) and os.path.getsize(p) >= 100})); return
+
+    if cmd == "review":
+        slug_dir, meta_json = sys.argv[3], sys.argv[4]
+        import run_update_force as r
+        meta = json.load(open(meta_json, encoding="utf-8"))
+        item = _to_item(meta)
+        figs = []
+        fp = os.path.join(slug_dir, ".pc_figs.json")
+        if os.path.exists(fp):
+            try: figs = json.load(open(fp, encoding="utf-8"))
+            except Exception: figs = []
+        r.write_review(item, slug_dir, figs)
+        p = os.path.join(slug_dir, "review.md")
+        print(json.dumps({"ok": os.path.exists(p) and os.path.getsize(p) >= 200})); return
 
     print(json.dumps({"error": "unknown cmd: %s" % cmd}))
 
@@ -75,7 +120,6 @@ async function getSubprocess(): Promise<any | null> {
   return null
 }
 
-/** 브리지 스크립트를 profile 디렉토리에 1회 기록하고 경로 반환. */
 async function ensureBridgeScript(): Promise<string> {
   const dir = joinPath(PathUtils.profileDir, "papercurio")
   const path = joinPath(dir, "pc_bridge.py")
@@ -90,18 +134,21 @@ interface PyResult {
   code: number
 }
 
-async function runPython(args: string[]): Promise<PyResult> {
+async function runPython(
+  args: string[],
+  env?: Record<string, string>,
+): Promise<PyResult> {
   const Subprocess = await getSubprocess()
   if (!Subprocess) {
     return { ok: false, stdout: "", stderr: "Subprocess 모듈 접근 불가", code: -1 }
   }
-  const py = pythonPath()
   try {
-    const proc = await Subprocess.call({
-      command: py,
-      arguments: args,
-      stderr: "pipe",
-    })
+    const opts: any = { command: pythonPath(), arguments: args, stderr: "pipe" }
+    if (env && Object.keys(env).length) {
+      opts.environment = env
+      opts.environmentAppend = true // 기존 env(PATH 등) 보존하며 추가
+    }
+    const proc = await Subprocess.call(opts)
     const readAll = async (stream: any) => {
       let s = ""
       let c: string | null
@@ -119,10 +166,15 @@ async function runPython(args: string[]): Promise<PyResult> {
   }
 }
 
-/**
- * paper-curation 원본 extract_figures를 py312 subprocess로 실행 → figures/figN.png 생성.
- * 반환: review.md 임베드용 figure 목록. 실패 시 빈 배열(파이프라인 계속).
- */
+function lastJson(stdout: string): any {
+  try {
+    return JSON.parse(stdout.trim().split("\n").filter(Boolean).pop() || "{}")
+  } catch {
+    return {}
+  }
+}
+
+/** 원본 extract_figures → figures/figN.png. 실패 시 빈 배열. */
 export async function extractFiguresViaBridge(
   pdfPath: string,
   slugDir: string,
@@ -136,19 +188,65 @@ export async function extractFiguresViaBridge(
       log("figure 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 300))
       return []
     }
-    // stdout 마지막 JSON 라인 파싱
-    const line = r.stdout.trim().split("\n").filter(Boolean).pop() || "{}"
-    const parsed = JSON.parse(line)
-    const figs: any[] = parsed.figures || []
-    const result = figs.map((f) => ({
+    const figs: any[] = lastJson(r.stdout).figures || []
+    return figs.map((f) => ({
       n: parseInt(f.name, 10) || 0,
       caption: String(f.caption || ""),
       file: `figures/fig${f.name}.png`,
     }))
-    log(`figure 브리지: ${result.length}개 (원본 extract_figures)`)
-    return result
   } catch (e) {
     log("extractFiguresViaBridge 예외", e)
     return []
+  }
+}
+
+/** 원본 extract_text → text.md. 성공 여부 반환. */
+export async function extractTextViaBridge(
+  pdfPath: string,
+  slugDir: string,
+  pcRoot: string,
+): Promise<boolean> {
+  if (!pdfPath || !pcRoot) return false
+  try {
+    const script = await ensureBridgeScript()
+    const r = await runPython([script, pcRoot, "text", pdfPath, slugDir])
+    if (!r.ok) {
+      log("text 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 300))
+      return false
+    }
+    return !!lastJson(r.stdout).ok
+  } catch (e) {
+    log("extractTextViaBridge 예외", e)
+    return false
+  }
+}
+
+/**
+ * 원본 write_review로 review.md 생성. ANTHROPIC_API_KEY를 env로 주입.
+ * 키 없거나 실패 시 false (호출부가 TS 폴백).
+ */
+export async function writeReviewViaBridge(
+  slugDir: string,
+  meta: PaperMeta,
+  pcRoot: string,
+): Promise<boolean> {
+  const key = getAnthropicKey()
+  if (!key || !pcRoot) return false
+  try {
+    const metaPath = joinPath(slugDir, "_pc_meta.json")
+    await writeText(metaPath, JSON.stringify(meta))
+    const script = await ensureBridgeScript()
+    const r = await runPython(
+      [script, pcRoot, "review", slugDir, metaPath],
+      { ANTHROPIC_API_KEY: key },
+    )
+    if (!r.ok) {
+      log("review 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 300))
+      return false
+    }
+    return !!lastJson(r.stdout).ok
+  } catch (e) {
+    log("writeReviewViaBridge 예외", e)
+    return false
   }
 }

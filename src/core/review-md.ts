@@ -1,6 +1,6 @@
 import { PaperMeta } from "../apis/zotero/item"
 import { ReviewPayload } from "../llm/schema"
-import { ExtractedFigure } from "../extract/figures"
+import { ExtractedFigure } from "../extract/pybridge"
 
 /** YAML 큰따옴표 문자열 (내부 " 와 백슬래시 이스케이프). */
 function y(s: string): string {

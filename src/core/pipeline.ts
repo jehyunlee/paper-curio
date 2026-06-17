@@ -22,8 +22,8 @@ import {
 } from "./review-md"
 import { buildReviewHtml, ConnItem } from "../render/reviewHtml"
 import { extractText, buildTextMd } from "../extract/text"
-import { extractFigures } from "../extract/figures"
-import { getPdfAttachmentKey } from "../extract/pdfjs"
+import { extractFiguresViaBridge } from "../extract/pybridge"
+import { getPdfAttachmentKey, pdfFilePath } from "../extract/pdfjs"
 import { getItemTopics } from "./categorize"
 import { buildOriginalityMarkdown } from "../extract/originality"
 import { joinPath, makeDir, writeText } from "../utils/fs"
@@ -96,8 +96,12 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
   const paperNumber = parseInt(slug.split("_")[0], 10) || 0
   const reviewDate = todayISO()
 
-  // 5) figures 추출 (pdf.js 캡션영역 crop → figures/figN.webp). 실패 시 빈 배열.
-  const figures = await extractFigures(item, slugDir)
+  // 5) figures 추출 — paper-curation 원본 extract_figures(PyMuPDF)를 py312 subprocess로 호출.
+  //    figures/figN.png 생성. PDF 경로 없으면/브리지 실패 시 빈 배열(계속 진행).
+  const pdfPath = await pdfFilePath(item)
+  const figures = pdfPath
+    ? await extractFiguresViaBridge(pdfPath, slugDir, target.root)
+    : []
 
   // 6) 연관 논문 (후보 풀 1차 필터 → LLM tool-use). 실패/후보없음 → 빈 배열.
   let connections: ConnItem[] = []

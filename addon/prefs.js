@@ -21,3 +21,6 @@ pref("extensions.zotero.__addonRef__.OVERWRITE_EXISTING", false)
 // collection명 → topic 매핑 (JSON). 비우면 collection명을 slugify해 topic으로 사용.
 // 예: {"AI for Science":"ai4s","Physical AI":"physical-ai"}
 pref("extensions.zotero.__addonRef__.COLLECTION_TOPIC_MAP", "")
+
+// Python 인터프리터 (paper-curation 원본 함수 호출용 — figure 추출 등). py3.12 + PyMuPDF 필요.
+pref("extensions.zotero.__addonRef__.PYTHON_PATH", "/opt/homebrew/Caskroom/miniconda/base/envs/py312/bin/python")

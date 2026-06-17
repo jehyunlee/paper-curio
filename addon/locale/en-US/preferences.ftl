@@ -16,3 +16,5 @@ pref-fallback-dir = Fallback output dir
 pref-overwrite =
     .label = Overwrite existing reviews
 pref-overwrite-hint = OFF (default): papers that already have a review are skipped. ON: existing review.md/index.html are overwritten (classification metadata preserved). Reviews created by Paper Curio itself are always regenerated regardless of this setting.
+pref-python-path = Python path
+pref-python-path-hint = Python interpreter used to call paper-curation's original functions (figure extraction etc.). Must be the same py3.12 + PyMuPDF environment as paper-curation. Blank uses the default conda py312.

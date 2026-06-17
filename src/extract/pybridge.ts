@@ -29,6 +29,7 @@ function pythonPath(): string {
  *  - originality <slug_dir> <meta_json> → originality_extractor._extract_rule_based
  *  - connections <slug> <slug_dir> <topic> <meta_json> → specter2/compute_related/generate/sync
  *  - inject_frontmatter <slug> <topic> → inject_frontmatter.py build_frontmatter/…/inject_into_review
+ *  - classify <slug> <topic> → classify_papers.classify_via_bundle (HDBSCAN approximate_predict)
  */
 const BRIDGE_PY = `import sys, os, json
 
@@ -197,6 +198,48 @@ def main():
             inj.inject_into_review(md_path, fm_yaml, related)
             head = open(md_path, encoding="utf-8").read(3)
             print(json.dumps({"ok": head.startswith("---")})); return
+        except Exception as e:
+            print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
+
+    if cmd == "classify":
+        # 원본 classify_papers.classify_via_bundle 로 카테고리 배정. 토픽 이름이
+        # 모델 있는 토픽과 다르면(예: slugify 로 'ai4s+scisci'→'ai4s-scisci')
+        # +/- 변형·별칭으로 resolve. 결과는 논문 primary_topic 키 아래 저장해
+        # inject_frontmatter 의 build_frontmatter 가 읽도록 한다.
+        slug, topic = sys.argv[3], sys.argv[4]
+        try:
+            import tempfile
+            import classify_papers as C
+            from config_loader import get_topic_dir
+            from topic_modeling import extract_originalities, compute_embeddings
+            docs = os.path.join(pc_root, "docs")
+            def _has_model(t):
+                return bool(t) and os.path.exists(os.path.join(docs, t, "_hdbscan_model.joblib"))
+            alias = {"science-of-science": "scisci", "ai-for-science": "ai4s"}
+            cands = [topic, topic.replace("-", "+"), alias.get(topic, "")]
+            model_topic = next((t for t in cands if _has_model(t)), None)
+            if not model_topic:
+                print(json.dumps({"ok": False, "reason": "no_model_topic:%s" % topic})); return
+            idx_path = os.path.join(docs, "papers", "_papers_index.json")
+            arr = json.load(open(idx_path, encoding="utf-8"))
+            p = next((x for x in arr if x.get("slug") == slug), None)
+            if p is None:
+                print(json.dumps({"ok": False, "reason": "not_in_index"})); return
+            bundle = C.load_bundle(str(get_topic_dir(model_topic)))
+            origs = extract_originalities([p])
+            if not origs:
+                print(json.dumps({"ok": False, "reason": "no_originality"})); return
+            tmp = tempfile.mktemp(suffix=".json")
+            embs, _slugs = compute_embeddings(origs, tmp)
+            try: os.remove(tmp)
+            except Exception: pass
+            primary, all_cats, sub, sub_map, _raw = C.classify_via_bundle(embs[0], bundle)
+            cls = {"primary_category": primary, "all_categories": all_cats,
+                   "sub_category": sub, "sub_categories": sub_map}
+            ptopic = p.get("primary_topic") or topic
+            p.setdefault("classifications", {})[ptopic] = cls
+            json.dump(arr, open(idx_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+            print(json.dumps({"ok": True, "primary_category": primary, "model_topic": model_topic})); return
         except Exception as e:
             print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
 
@@ -461,6 +504,38 @@ export async function injectFrontmatterViaBridge(
     return !!j.ok
   } catch (e) {
     log("injectFrontmatterViaBridge 예외", e)
+    return false
+  }
+}
+
+/**
+ * 원본 classify_papers.classify_via_bundle 로 카테고리(primary/all/sub) 배정.
+ * 토픽에 HDBSCAN 모델이 있어야 함(+/- 변형·별칭 resolve). 결과는 _papers_index 의
+ * classifications[primary_topic] 에 기록 → 이후 inject_frontmatter 가 frontmatter 에 반영.
+ * 모델 없거나 실패 시 false (분류 생략, 기존 동작과 동일).
+ */
+export async function classifyViaBridge(
+  slug: string,
+  topic: string,
+  pcRoot: string,
+): Promise<boolean> {
+  if (!pcRoot || !slug || !topic) return false
+  try {
+    const script = await ensureBridgeScript()
+    const r = await runPython([script, pcRoot, "classify", slug, topic])
+    if (!r.ok) {
+      log("classify 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
+      return false
+    }
+    const j = lastJson(r.stdout)
+    if (!j.ok) {
+      log("classify ok=false", j.reason || "")
+      return false
+    }
+    log(`classify OK: ${j.primary_category || ""} (model=${j.model_topic || ""})`)
+    return true
+  } catch (e) {
+    log("classifyViaBridge 예외", e)
     return false
   }
 }

@@ -26,6 +26,7 @@ import {
   extractOriginalityViaBridge,
   generateConnectionsViaBridge,
   injectFrontmatterViaBridge,
+  classifyViaBridge,
 } from "../extract/pybridge"
 import { getPdfAttachmentKey, pdfFilePath } from "../extract/pdfjs"
 import { getItemTopics } from "./categorize"
@@ -249,6 +250,16 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     tags: ["paper", "papercurio-generated", ...finalTopics],
   }
   await upsertEntry(target.papersDir, mergeEntry(existing, fresh))
+
+  // 10.4) 카테고리 분류 — 원본 classify_papers.classify_via_bundle(HDBSCAN).
+  //       _papers_index 기록 직후 실행(인덱스 엔트리를 읽어 classifications 갱신).
+  //       토픽에 모델 없으면 skip(분류 비움) → 이후 paper-curation classify 에 위임.
+  try {
+    const classified = await classifyViaBridge(slug, primaryTopic, target.root)
+    log(`카테고리 분류 ${classified ? "OK" : "skip"}`)
+  } catch (e) {
+    log("카테고리 분류 실패(무시)", e)
+  }
 
   // 10.5) review.md에 원본 frontmatter + Related Papers 주입 — 본체 풀런과 출력 일치.
   //       _papers_index.json 기록 뒤 실행(build_frontmatter가 인덱스 엔트리를 읽음).

@@ -1,5 +1,6 @@
 import { PaperMeta } from "../apis/zotero/item"
 import { ReviewPayload } from "../llm/schema"
+import { ExtractedFigure } from "../extract/figures"
 
 /** YAML 큰따옴표 문자열 (내부 " 와 백슬래시 이스케이프). */
 function y(s: string): string {
@@ -26,6 +27,72 @@ export interface BuildReviewArgs {
   provider: string
   hasPdf: boolean
   reviewDate: string
+  figures?: ExtractedFigure[]
+}
+
+/** Essence 섹션 상단에 들어갈 figure 마크다운 블록. */
+function figureBlock(figures: ExtractedFigure[]): string {
+  if (!figures || figures.length === 0) return ""
+  return (
+    figures
+      .map((f) => `![Figure ${f.n}](${f.file})\n\n*${f.caption}*`)
+      .join("\n\n") + "\n\n"
+  )
+}
+
+/** review.md 본문('# 제목' 이하). index.html 렌더러에도 그대로 전달된다. */
+export function buildReviewBody(args: BuildReviewArgs): string {
+  const { meta, payload, figures = [] } = args
+  const overall = overallScore(payload)
+  const authorsLine = meta.authors.join(", ") || "(미상)"
+  const urlLine = meta.url ? `[${meta.url}](${meta.url})` : "(없음)"
+
+  return [
+    "",
+    `# ${meta.title}`,
+    "",
+    `> **저자**: ${authorsLine} | **날짜**: ${meta.date || "(미상)"} | **URL**: ${urlLine}`,
+    "",
+    "---",
+    "",
+    "## Essence",
+    "",
+    figureBlock(figures) + payload.essence,
+    "",
+    "## Motivation",
+    "",
+    `- **Known**: ${payload.known}`,
+    `- **Gap**: ${payload.gap}`,
+    `- **Why**: ${payload.why}`,
+    `- **Approach**: ${payload.approach}`,
+    "",
+    "## Achievement",
+    "",
+    payload.achievement,
+    "",
+    "## How",
+    "",
+    payload.how,
+    "",
+    "## Originality",
+    "",
+    payload.originality,
+    "",
+    "## Limitation",
+    "",
+    payload.limitation,
+    "",
+    "## Evaluation",
+    "",
+    `- Novelty: ${payload.novelty}/5`,
+    `- Technical Soundness: ${payload.technical}/5`,
+    `- Significance: ${payload.significance}/5`,
+    `- Clarity: ${payload.clarity}/5`,
+    `- Overall: ${Math.round(overall)}/5`,
+    "",
+    `**총평**: ${payload.verdict}`,
+    "",
+  ].join("\n")
 }
 
 export function buildReviewMarkdown(args: BuildReviewArgs): string {
@@ -66,57 +133,5 @@ export function buildReviewMarkdown(args: BuildReviewArgs): string {
     "---",
   ].join("\n")
 
-  const authorsLine = meta.authors.join(", ") || "(미상)"
-  const urlLine = meta.url ? `[${meta.url}](${meta.url})` : "(없음)"
-
-  const body = [
-    "",
-    `# ${meta.title}`,
-    "",
-    `> **저자**: ${authorsLine} | **날짜**: ${meta.date || "(미상)"} | **URL**: ${urlLine}`,
-    "",
-    "---",
-    "",
-    "## Essence",
-    "",
-    payload.essence,
-    "",
-    "## Motivation",
-    "",
-    `- **Known**: ${payload.known}`,
-    `- **Gap**: ${payload.gap}`,
-    `- **Why**: ${payload.why}`,
-    `- **Approach**: ${payload.approach}`,
-    "",
-    "## Achievement",
-    "",
-    payload.achievement,
-    "",
-    "## How",
-    "",
-    payload.how,
-    "",
-    "## Originality",
-    "",
-    payload.originality,
-    "",
-    "## Limitation",
-    "",
-    payload.limitation,
-    "",
-    "## Evaluation",
-    "",
-    "| 항목 | 점수 |",
-    "|---|---|",
-    `| Novelty | ${payload.novelty.toFixed(1)} |`,
-    `| Technical | ${payload.technical.toFixed(1)} |`,
-    `| Significance | ${payload.significance.toFixed(1)} |`,
-    `| Clarity | ${payload.clarity.toFixed(1)} |`,
-    `| **Overall** | **${overall.toFixed(1)}** |`,
-    "",
-    `> ${payload.verdict}`,
-    "",
-  ].join("\n")
-
-  return frontmatter + "\n" + body
+  return frontmatter + "\n" + buildReviewBody(args)
 }

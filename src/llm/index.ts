@@ -4,9 +4,62 @@ import { AnthropicProvider } from "./anthropic"
 import { OpenAIProvider } from "./openai"
 import { GeminiProvider } from "./gemini"
 import { llm as log } from "../utils/loggers"
+import Anthropic from "@anthropic-ai/sdk"
+import OpenAI from "openai"
+import { GoogleGenerativeAI } from "@google/generative-ai"
+import { getAnthropicKey, getOpenAIKey, getGeminiKey } from "../utils/env"
+import { getPrefStr } from "../utils/prefs"
 
 export { ReviewPayload } from "./schema"
 export { AggregateProviderError } from "./provider"
+
+/**
+ * 단순 텍스트 완성 (tool-call 아님). originality LLM fallback 등에 사용.
+ * Anthropic → OpenAI → Gemini 폴백. 전부 실패하면 빈 문자열.
+ */
+export async function completeText(prompt: string): Promise<string> {
+  if (getAnthropicKey()) {
+    try {
+      const c = new Anthropic({ apiKey: getAnthropicKey(), dangerouslyAllowBrowser: true })
+      const r = await c.messages.create({
+        model: getPrefStr("ANTHROPIC_MODEL") || "claude-sonnet-4-6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: prompt }],
+      })
+      const block = r.content.find((b: any) => b.type === "text") as any
+      if (block?.text) return block.text
+    } catch (e) {
+      log("completeText anthropic 실패 → 폴백", e)
+    }
+  }
+  if (getOpenAIKey()) {
+    try {
+      const c = new OpenAI({ apiKey: getOpenAIKey(), dangerouslyAllowBrowser: true })
+      const r = await c.chat.completions.create({
+        model: getPrefStr("OPENAI_MODEL") || "gpt-5",
+        messages: [{ role: "user", content: prompt }],
+      })
+      const t = r.choices?.[0]?.message?.content
+      if (t) return t
+    } catch (e) {
+      log("completeText openai 실패 → 폴백", e)
+    }
+  }
+  if (getGeminiKey()) {
+    try {
+      const genAI = new GoogleGenerativeAI(getGeminiKey())
+      const m = genAI.getGenerativeModel({
+        model: getPrefStr("GEMINI_MODEL") || "gemini-3.1-pro-preview",
+      })
+      const r = await m.generateContent(prompt)
+      const t = r.response.text()
+      if (t) return t
+    } catch (e) {
+      log("completeText gemini 실패", e)
+    }
+  }
+  return ""
+}
 
 /** Anthropic → OpenAI → Gemini 순. */
 function chain(): ReviewProvider[] {

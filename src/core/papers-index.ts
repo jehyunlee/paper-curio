@@ -87,6 +87,52 @@ export async function findExisting(
 }
 
 /**
+ * 연관 논문 후보 풀 구성. 전체 인덱스가 크므로(수천 건) LLM에 다 못 넘김 →
+ * 공유 토큰(제목 단어)·저자·연도 근접으로 1차 점수 → 상위 N만 반환.
+ * 자기 자신(slug) 제외.
+ */
+export async function buildConnectionCandidates(
+  papersDir: string,
+  target: { slug: string; title: string; authors: string[]; date: string },
+  limit = 60,
+): Promise<{ slug: string; title: string; essence: string; date: string }[]> {
+  const idx = await readPapersIndex(papersDir)
+  const targetWords = new Set(
+    (target.title || "").toLowerCase().split(/\W+/).filter((w) => w.length >= 4),
+  )
+  const targetAuthors = new Set(target.authors.map((a) => a.toLowerCase()))
+  const targetYear = parseInt((target.date || "").slice(0, 4), 10)
+
+  const scored = idx
+    .filter((e) => e.slug !== target.slug)
+    .map((e) => {
+      let score = 0
+      const ew = new Set(
+        (e.title || "").toLowerCase().split(/\W+/).filter((w) => w.length >= 4),
+      )
+      for (const w of targetWords) if (ew.has(w)) score += 2
+      const ea = (e.authors || []).map((a) => String(a).toLowerCase())
+      for (const a of ea) if (targetAuthors.has(a)) score += 3
+      const ey = parseInt((e.date || "").slice(0, 4), 10)
+      if (Number.isFinite(targetYear) && Number.isFinite(ey)) {
+        const gap = Math.abs(targetYear - ey)
+        if (gap <= 1) score += 1
+      }
+      return { e, score }
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+
+  return scored.map(({ e }) => ({
+    slug: e.slug,
+    title: e.title,
+    essence: typeof e.essence === "string" ? e.essence : "",
+    date: e.date,
+  }))
+}
+
+/**
  * 덮어쓰기 시 인덱스 엔트리 머지: 기존 엔트리의 분류·figure 등 풍부한 필드는
  * 보존하고, Paper Curio가 새로 만든 필드(score·essence·review_date·tags 등)만 갱신.
  */

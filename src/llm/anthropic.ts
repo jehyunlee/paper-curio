@@ -22,7 +22,7 @@ export class AnthropicProvider implements ReviewProvider {
     userPrompt: string,
   ): Promise<ReviewPayload> {
     const apiKey = getAnthropicKey()
-    const model = getPrefStr("ANTHROPIC_MODEL") || "claude-haiku-4-5"
+    const model = getPrefStr("ANTHROPIC_MODEL") || "claude-sonnet-4-6"
     const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true })
 
     const resp = await client.messages.create({

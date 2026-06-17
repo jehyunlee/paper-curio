@@ -22,6 +22,7 @@ import {
   extractFiguresViaBridge,
   extractTextViaBridge,
   writeReviewViaBridge,
+  extractOriginalityViaBridge,
 } from "../extract/pybridge"
 import { getPdfAttachmentKey, pdfFilePath } from "../extract/pdfjs"
 import { getItemTopics } from "./categorize"
@@ -135,16 +136,24 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
   const reviewContent = (await readText(reviewPath).catch(() => "")) || ""
   const parsed = parseReviewMd(reviewContent)
 
-  // 7) originality.md — 원본 경로(rule-based → "title. essence"). LLM 없음, 헤더 없음.
+  // 7) originality.md — 원본 함수(_extract_rule_based) 브리지 우선, 실패 시 TS(동일 로직 포팅).
   try {
-    const originality = await buildOriginalityMarkdown({
-      paperNumber,
-      title: meta.title,
-      textMd: textStr,
-      abstract: meta.abstract,
-      essence: parsed.essence,
-    })
-    await writeText(joinPath(slugDir, "originality.md"), originality)
+    const okBridge = await extractOriginalityViaBridge(
+      slugDir,
+      meta.title,
+      parsed.essence,
+      target.root,
+    )
+    if (!okBridge) {
+      const originality = await buildOriginalityMarkdown({
+        paperNumber,
+        title: meta.title,
+        textMd: textStr,
+        abstract: meta.abstract,
+        essence: parsed.essence,
+      })
+      await writeText(joinPath(slugDir, "originality.md"), originality)
+    }
   } catch (e) {
     log("originality.md 생성 실패(무시)", e)
   }

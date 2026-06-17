@@ -84,6 +84,22 @@ def main():
         p = os.path.join(slug_dir, "review.md")
         print(json.dumps({"ok": os.path.exists(p) and os.path.getsize(p) >= 200})); return
 
+    if cmd == "originality":
+        # topic_modeling.py 경로 그대로: abstract 창 → 전체 → "title. essence" (LLM 없음, 헤더 없음)
+        slug_dir, meta_json = sys.argv[3], sys.argv[4]
+        from lib.originality_extractor import _extract_rule_based, load_triggers
+        meta = json.load(open(meta_json, encoding="utf-8"))
+        tp = os.path.join(slug_dir, "text.md")
+        full = open(tp, encoding="utf-8").read() if os.path.exists(tp) else ""
+        triggers = load_triggers()
+        abs_pos = full.lower().find("abstract")
+        window = full[abs_pos:abs_pos + 1000] if abs_pos >= 0 else full[:1000]
+        orig = _extract_rule_based(window, triggers) or _extract_rule_based(full, triggers)
+        if not orig:
+            orig = ("%s. %s" % (meta.get("title", ""), meta.get("essence", ""))).strip()
+        open(os.path.join(slug_dir, "originality.md"), "w", encoding="utf-8").write(orig)
+        print(json.dumps({"ok": bool(orig)})); return
+
     print(json.dumps({"error": "unknown cmd: %s" % cmd}))
 
 if __name__ == "__main__":
@@ -247,6 +263,33 @@ export async function writeReviewViaBridge(
     return !!lastJson(r.stdout).ok
   } catch (e) {
     log("writeReviewViaBridge 예외", e)
+    return false
+  }
+}
+
+/**
+ * 원본 originality 경로(_extract_rule_based → "title. essence")로 originality.md 생성.
+ * LLM 없음 → 키 불필요. text.md가 먼저 있어야 함. 실패 시 false.
+ */
+export async function extractOriginalityViaBridge(
+  slugDir: string,
+  title: string,
+  essence: string,
+  pcRoot: string,
+): Promise<boolean> {
+  if (!pcRoot) return false
+  try {
+    const metaPath = joinPath(slugDir, "_pc_orig.json")
+    await writeText(metaPath, JSON.stringify({ title, essence }))
+    const script = await ensureBridgeScript()
+    const r = await runPython([script, pcRoot, "originality", slugDir, metaPath])
+    if (!r.ok) {
+      log("originality 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
+      return false
+    }
+    return !!lastJson(r.stdout).ok
+  } catch (e) {
+    log("extractOriginalityViaBridge 예외", e)
     return false
   }
 }

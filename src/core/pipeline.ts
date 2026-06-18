@@ -256,11 +256,15 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
   // 10.4) 카테고리 분류 — 원본 classify_papers.classify_via_bundle(HDBSCAN).
   //       _papers_index 기록 직후 실행(인덱스 엔트리를 읽어 classifications 갱신).
   //       토픽에 모델 없으면 skip(분류 비움) → 이후 paper-curation classify 에 위임.
-  try {
-    const classified = await classifyViaBridge(slug, primaryTopic, target.root)
-    log(`카테고리 분류 ${classified ? "OK" : "skip"}`)
-  } catch (e) {
-    log("카테고리 분류 실패(무시)", e)
+  //       논문이 속한 모든 토픽에 대해 분류(각 토픽 모델 → 토픽별 classifications 키).
+  for (const t of finalTopics) {
+    if (t === "uncategorized") continue
+    try {
+      const classified = await classifyViaBridge(slug, t, target.root)
+      log(`카테고리 분류[${t}] ${classified ? "OK" : "skip"}`)
+    } catch (e) {
+      log(`카테고리 분류[${t}] 실패(무시)`, e)
+    }
   }
 
   // 10.5) review.md에 원본 frontmatter + Related Papers 주입 — 본체 풀런과 출력 일치.
@@ -273,14 +277,17 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     log("frontmatter 주입 실패(무시)", e)
   }
 
-  // 10.6) paper-curation 토픽 뷰 반영 — Deep Research(검색 인덱스) + category 페이지
-  //       + network 재생성(논문당 즉시). 무거우므로 실패해도 무시(다음 풀런이 반영).
-  //       primaryTopic 이 캐노니컬(모델 번들 있는 토픽)이어야 의미가 있음 → Part A 로 보장.
-  try {
-    const integrated = await integrateViaBridge(primaryTopic, target.root)
-    log(`토픽 반영 ${integrated ? "OK" : "skip/부분"}`)
-  } catch (e) {
-    log("토픽 반영 실패(무시)", e)
+  // 10.6) paper-curation 토픽 뷰 반영 — 논문이 속한 모든 토픽에 대해 Deep Research
+  //       (검색 인덱스) + category 페이지 + network 재생성(논문당 즉시). 무거우므로
+  //       실패해도 무시(다음 풀런이 반영). 토픽은 캐노니컬(모델 번들 보유) → Part A 보장.
+  for (const t of finalTopics) {
+    if (t === "uncategorized") continue
+    try {
+      const integrated = await integrateViaBridge(t, target.root)
+      log(`토픽 반영[${t}] ${integrated ? "OK" : "skip/부분"}`)
+    } catch (e) {
+      log(`토픽 반영[${t}] 실패(무시)`, e)
+    }
   }
 
   // 11) Zotero item 표시

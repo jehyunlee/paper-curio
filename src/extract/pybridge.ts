@@ -236,8 +236,9 @@ def main():
             primary, all_cats, sub, sub_map, _raw = C.classify_via_bundle(embs[0], bundle)
             cls = {"primary_category": primary, "all_categories": all_cats,
                    "sub_category": sub, "sub_categories": sub_map}
-            ptopic = p.get("primary_topic") or topic
-            p.setdefault("classifications", {})[ptopic] = cls
+            # 분류 결과는 분류에 쓴 (캐노니컬) model_topic 키 아래 저장 — 멀티토픽
+            # 논문이 토픽마다 올바른 카테고리를 갖도록(primary 키 고정 금지).
+            p.setdefault("classifications", {})[model_topic] = cls
             json.dump(arr, open(idx_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
             print(json.dumps({"ok": True, "primary_category": primary, "model_topic": model_topic})); return
         except Exception as e:

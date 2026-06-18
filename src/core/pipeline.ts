@@ -27,6 +27,7 @@ import {
   generateConnectionsViaBridge,
   injectFrontmatterViaBridge,
   classifyViaBridge,
+  integrateViaBridge,
 } from "../extract/pybridge"
 import { getPdfAttachmentKey, pdfFilePath } from "../extract/pdfjs"
 import { getItemTopics } from "./categorize"
@@ -162,8 +163,9 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     log("originality.md 생성 실패(무시)", e)
   }
 
-  // topic은 Zotero collection 기반. category는 paper-curation classify에 위임.
-  const topics = getItemTopics(item)
+  // topic은 Zotero collection 기반(캐노니컬: paper-curation config.json 역매핑).
+  // category는 paper-curation classify에 위임.
+  const topics = await getItemTopics(item, target.root)
   const finalTopics = topics.length > 0 ? topics : ["uncategorized"]
   const primaryTopic = finalTopics[0]
 
@@ -269,6 +271,16 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     log(`frontmatter 주입 ${injected ? "OK" : "skip"}`)
   } catch (e) {
     log("frontmatter 주입 실패(무시)", e)
+  }
+
+  // 10.6) paper-curation 토픽 뷰 반영 — Deep Research(검색 인덱스) + category 페이지
+  //       + network 재생성(논문당 즉시). 무거우므로 실패해도 무시(다음 풀런이 반영).
+  //       primaryTopic 이 캐노니컬(모델 번들 있는 토픽)이어야 의미가 있음 → Part A 로 보장.
+  try {
+    const integrated = await integrateViaBridge(primaryTopic, target.root)
+    log(`토픽 반영 ${integrated ? "OK" : "skip/부분"}`)
+  } catch (e) {
+    log("토픽 반영 실패(무시)", e)
   }
 
   // 11) Zotero item 표시

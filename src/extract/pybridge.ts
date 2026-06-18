@@ -1,5 +1,5 @@
 import { getPrefStr } from "../utils/prefs"
-import { getAnthropicKey } from "../utils/env"
+import { getAnthropicKey, getGeminiKey } from "../utils/env"
 import { joinPath, writeText } from "../utils/fs"
 import { fs as log } from "../utils/loggers"
 import type { PaperMeta } from "../apis/zotero/item"
@@ -242,6 +242,34 @@ def main():
             print(json.dumps({"ok": True, "primary_category": primary, "model_topic": model_topic})); return
         except Exception as e:
             print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
+
+    if cmd == "integrate":
+        # 신규 논문을 토픽 뷰에 반영: Deep Research(build_search_index) + category
+        # 페이지(build_topic_index) + network(generate_network) 재생성. 각 스크립트를
+        # py312 서브프로세스로 실행(청크 임베딩 캐시 히트라 비용 낮음). cwd=pc_root.
+        topic = sys.argv[3]
+        import subprocess
+        pipe = os.path.join(pc_root, "pipeline")
+        steps = [
+            ("build_search_index.py", ["--topic", topic]),
+            ("build_topic_index.py", [topic]),
+            ("generate_network.py", ["--topic", topic]),
+        ]
+        results = {}
+        ok = True
+        for script, sargs in steps:
+            sp = os.path.join(pipe, script)
+            if not os.path.exists(sp):
+                results[script] = "missing"; ok = False; continue
+            try:
+                cp = subprocess.run([sys.executable, sp, *sargs], cwd=pc_root,
+                                    capture_output=True, text=True, timeout=2400)
+                results[script] = "ok" if cp.returncode == 0 else "fail:%d" % cp.returncode
+                if cp.returncode != 0:
+                    ok = False
+            except Exception as e:
+                results[script] = "error:%s" % e; ok = False
+        print(json.dumps({"ok": ok, "results": results})); return
 
     print(json.dumps({"error": "unknown cmd: %s" % cmd}))
 
@@ -536,6 +564,41 @@ export async function classifyViaBridge(
     return true
   } catch (e) {
     log("classifyViaBridge 예외", e)
+    return false
+  }
+}
+
+/**
+ * 신규 논문을 paper-curation 토픽 뷰에 반영 — Deep Research(build_search_index) +
+ * category 페이지(build_topic_index) + network(generate_network) 재생성. GOOGLE/
+ * GEMINI(임베딩)·ANTHROPIC 키를 env 로 주입. 일부라도 실패하면 false(무거우므로
+ * 호출부가 무시하고 다음 paper-curation 풀런에 위임 가능).
+ */
+export async function integrateViaBridge(
+  topic: string,
+  pcRoot: string,
+): Promise<boolean> {
+  if (!pcRoot || !topic) return false
+  try {
+    const script = await ensureBridgeScript()
+    const env: Record<string, string> = {}
+    const g = getGeminiKey()
+    if (g) {
+      env.GOOGLE_API_KEY = g
+      env.GEMINI_API_KEY = g
+    }
+    const a = getAnthropicKey()
+    if (a) env.ANTHROPIC_API_KEY = a
+    const r = await runPython([script, pcRoot, "integrate", topic], env)
+    if (!r.ok) {
+      log("integrate 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
+      return false
+    }
+    const j = lastJson(r.stdout)
+    log(`integrate ${j.ok ? "OK" : "부분실패"}: ${JSON.stringify(j.results || {})}`)
+    return !!j.ok
+  } catch (e) {
+    log("integrateViaBridge 예외", e)
     return false
   }
 }

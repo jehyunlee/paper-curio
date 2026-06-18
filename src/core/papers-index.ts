@@ -141,8 +141,27 @@ export function mergeEntry(
   fresh: PaperIndexEntry,
 ): PaperIndexEntry {
   if (!existing) return fresh
+  // topics/primary_topic 은 Paper Curio(Zotero collection 기반)가 권위 — fresh 의
+  // 캐노니컬 토픽이 기존(옛 slug 등)을 덮는다. 단 fresh 가 uncategorized 뿐이면 기존
+  // 보존(수동 분류·paper-curation 풀런 enrich 를 지움 방지).
+  const freshReal = (fresh.topics || []).some((t) => t && t !== "uncategorized")
+  const topics = freshReal ? fresh.topics : existing.topics || fresh.topics
+  const primary_topic = freshReal
+    ? fresh.primary_topic
+    : existing.primary_topic || fresh.primary_topic
+  // 토픽이 바뀌면 옛 slug 의 stale classifications/태그를 정리. classifications 는
+  // 현재 topics 키만 보존(이후 classify 단계가 primary 토픽 분류를 다시 채운다).
+  const keep = new Set(topics || [])
+  const classifications = Object.fromEntries(
+    Object.entries(existing.classifications || {}).filter(([k]) => keep.has(k)),
+  ) as PaperIndexEntry["classifications"]
+  const oldTopics = new Set(existing.topics || [])
+  const keptTags = (existing.tags || []).filter((t) => !oldTopics.has(t))
   return {
-    ...existing, // classifications, topics, primary_topic, pdf_path, has_figures, text_md_sha256 등 보존
+    ...existing, // pdf_path, has_figures, text_md_sha256 등 보존
+    topics,
+    primary_topic,
+    classifications,
     title: fresh.title,
     authors: fresh.authors,
     date: fresh.date,
@@ -152,9 +171,7 @@ export function mergeEntry(
     has_pdf: fresh.has_pdf,
     review_date: fresh.review_date,
     zotero_item_key: fresh.zotero_item_key || existing.zotero_item_key,
-    tags: Array.from(
-      new Set([...(existing.tags || []), ...fresh.tags]),
-    ),
+    tags: Array.from(new Set([...keptTags, ...fresh.tags])),
   }
 }
 

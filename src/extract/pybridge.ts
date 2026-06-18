@@ -240,6 +240,19 @@ def main():
             # 논문이 토픽마다 올바른 카테고리를 갖도록(primary 키 고정 금지).
             p.setdefault("classifications", {})[model_topic] = cls
             json.dump(arr, open(idx_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+            # 신규 논문 시각화 좌표 — 번들 umap_2d/3d 로 투영해 _umap_coords.json 에
+            # 추가(network 에 제대로 배치되도록). 번들에 transformer 가 없거나 이미
+            # 좌표가 있으면 건너뛴다. integrate 단계의 generate_network 가 이를 읽는다.
+            try:
+                viz = C.compute_viz_coords([embs[0]], bundle)
+                if viz:
+                    cpath = os.path.join(docs, model_topic, "_umap_coords.json")
+                    coords = json.load(open(cpath, encoding="utf-8")) if os.path.exists(cpath) else {}
+                    if slug not in coords:
+                        coords[slug] = viz[0]
+                        json.dump(coords, open(cpath, "w", encoding="utf-8"), ensure_ascii=False)
+            except Exception:
+                pass
             print(json.dumps({"ok": True, "primary_category": primary, "model_topic": model_topic})); return
         except Exception as e:
             print(json.dumps({"ok": False, "reason": "error:%s" % e})); return

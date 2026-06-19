@@ -17,3 +17,11 @@ toast-pending = 대기 중: { $title }
 toast-running-batch = 처리 중 ({ $i }/{ $n }): { $title }
 toast-done-line = 완료: { $title } ({ $score })
 toast-batch-summary = 완료 — 성공 { $ok } / 건너뜀 { $skip } / 실패 { $fail } / 중단 { $abort }
+
+# 컬렉션 메뉴 — 웹 배포
+collectionmenu-deploy = 이 컬렉션 웹 배포 (Cloudflare)
+toast-deploy-no-collection = 컬렉션을 먼저 선택하세요.
+toast-deploy-running = 웹 배포 중: { $topic } … (1~2분 소요)
+toast-deploy-done = 웹 배포 완료: { $topic }
+toast-deploy-fail = 웹 배포 실패: { $topic } — { $err }
+toast-deploy-no-cf = Cloudflare 자격증명이 없습니다. config.json의 cloudflare.api_token / cloudflare.account_id 를 추가하거나 CF_API_TOKEN·CLOUDFLARE_ACCOUNT_ID 환경변수를 설정하세요.

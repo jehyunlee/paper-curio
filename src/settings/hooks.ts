@@ -2,7 +2,12 @@ import { config } from "../../package.json"
 import { initLocale } from "../utils/locale"
 import { injectEnvSecrets } from "../utils/env"
 import { registerPrefs, onPrefsLoad } from "./preferences"
-import { registerItemMenu, unregisterItemMenu } from "../views/root"
+import {
+  registerItemMenu,
+  unregisterItemMenu,
+  registerCollectionMenu,
+  unregisterCollectionMenu,
+} from "../views/root"
 import { pipeline as log } from "../utils/loggers"
 
 async function onStartup() {
@@ -23,18 +28,21 @@ async function onStartup() {
 async function onMainWindowLoad(_win: Window): Promise<void> {
   try {
     registerItemMenu()
+    registerCollectionMenu()
   } catch (e) {
-    log("registerItemMenu 실패", e)
+    log("register menu 실패", e)
   }
 }
 
 async function onMainWindowUnload(_win: Window): Promise<void> {
   unregisterItemMenu()
+  unregisterCollectionMenu()
   ztoolkit.unregisterAll()
 }
 
 function onShutdown(): void {
   unregisterItemMenu()
+  unregisterCollectionMenu()
   ztoolkit.unregisterAll()
   addon.data.alive = false
   // @ts-ignore

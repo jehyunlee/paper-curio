@@ -17,3 +17,11 @@ toast-pending = Pending: { $title }
 toast-running-batch = Processing ({ $i }/{ $n }): { $title }
 toast-done-line = Done: { $title } ({ $score })
 toast-batch-summary = Done — { $ok } ok / { $skip } skipped / { $fail } failed / { $abort } aborted
+
+# Collection menu — web deploy
+collectionmenu-deploy = Web deploy this collection (Cloudflare)
+toast-deploy-no-collection = Select a collection first.
+toast-deploy-running = Deploying to web: { $topic } … (takes 1-2 min)
+toast-deploy-done = Web deploy complete: { $topic }
+toast-deploy-fail = Web deploy failed: { $topic } — { $err }
+toast-deploy-no-cf = No Cloudflare credentials. Add cloudflare.api_token / cloudflare.account_id to config.json, or set CF_API_TOKEN / CLOUDFLARE_ACCOUNT_ID env vars.

@@ -285,6 +285,41 @@ def main():
                 results[script] = "error:%s" % e; ok = False
         print(json.dumps({"ok": ok, "results": results})); return
 
+    if cmd == "deploy":
+        # Publish a topic to Cloudflare via prepare_deploy (key strip ->
+        # wrangler deploy -> gh-pages stubs -> 200 OK check). CF credentials:
+        # process env first, then config.json so it works even when Zotero was
+        # launched without shell exports.
+        topic = sys.argv[3]
+        import subprocess
+        sp = os.path.join(pc_root, "pipeline", "prepare_deploy.py")
+        if not os.path.exists(sp):
+            print(json.dumps({"ok": False, "reason": "no_prepare_deploy"})); return
+        env = dict(os.environ)
+        try:
+            cfg = json.load(open(os.path.join(pc_root, "config.json"), encoding="utf-8"))
+            cf = cfg.get("cloudflare") or {}
+            tok = (env.get("CF_API_TOKEN") or env.get("CLOUDFLARE_API_TOKEN")
+                   or cf.get("api_token") or cfg.get("cloudflare_api_token") or "")
+            acct = (env.get("CLOUDFLARE_ACCOUNT_ID") or cf.get("account_id")
+                    or cfg.get("cloudflare_account_id") or "")
+            if tok:
+                env["CF_API_TOKEN"] = tok; env["CLOUDFLARE_API_TOKEN"] = tok
+            if acct:
+                env["CLOUDFLARE_ACCOUNT_ID"] = acct
+        except Exception:
+            pass
+        if not env.get("CF_API_TOKEN") or not env.get("CLOUDFLARE_ACCOUNT_ID"):
+            print(json.dumps({"ok": False, "reason": "no_cf_credentials"})); return
+        try:
+            cp = subprocess.run([sys.executable, sp, "--topic", topic, "--push"],
+                                cwd=pc_root, capture_output=True, text=True,
+                                timeout=1800, env=env)
+            tail = ((cp.stdout or "") + " " + (cp.stderr or ""))[-600:]
+            print(json.dumps({"ok": cp.returncode == 0, "code": cp.returncode, "tail": tail})); return
+        except Exception as e:
+            print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
+
     print(json.dumps({"error": "unknown cmd: %s" % cmd}))
 
 if __name__ == "__main__":
@@ -588,6 +623,32 @@ export async function classifyViaBridge(
  * GEMINI(임베딩)·ANTHROPIC 키를 env 로 주입. 일부라도 실패하면 false(무거우므로
  * 호출부가 무시하고 다음 paper-curation 풀런에 위임 가능).
  */
+/**
+ * Publish a topic to Cloudflare via prepare_deploy.py (key strip + wrangler
+ * deploy + gh-pages stub sync). CF credentials come from the process env or
+ * config.json (cloudflare.api_token / cloudflare.account_id).
+ */
+export async function deployViaBridge(
+  topic: string,
+  pcRoot: string,
+): Promise<{ ok: boolean; reason?: string; tail?: string }> {
+  if (!pcRoot || !topic) return { ok: false, reason: "no_topic" }
+  try {
+    const script = await ensureBridgeScript()
+    const r = await runPython([script, pcRoot, "deploy", topic])
+    if (!r.ok) {
+      log("deploy 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
+      return { ok: false, reason: `bridge:${r.code}`, tail: r.stderr.slice(0, 300) }
+    }
+    const j = lastJson(r.stdout)
+    log(`deploy ${j.ok ? "OK" : "실패"}: ${j.reason || j.code || ""}`)
+    return { ok: !!j.ok, reason: j.reason, tail: j.tail }
+  } catch (e) {
+    log("deployViaBridge 예외", e)
+    return { ok: false, reason: String(e) }
+  }
+}
+
 export async function integrateViaBridge(
   topic: string,
   pcRoot: string,

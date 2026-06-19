@@ -4,9 +4,13 @@ import { getSelectedRegularItems } from "../apis/zotero/item"
 import { processItem } from "../core/pipeline"
 import { hasAnyProvider, configuredProviders } from "../llm"
 import { menu as log } from "../utils/loggers"
+import { resolveOutputTarget } from "../core/pc-discovery"
+import { deployViaBridge } from "../extract/pybridge"
+import { topicForCollection } from "../core/categorize"
 
 const MENU_ID = `${config.addonRef}-itemmenu-review`
 const SEP_ID = `${config.addonRef}-itemmenu-sep`
+const DEPLOY_ID = `${config.addonRef}-collectionmenu-deploy`
 
 /** onMainWindowLoad에서 호출. 우클릭(item) 컨텍스트 메뉴에 단일 항목 등록. */
 export function registerItemMenu(): void {
@@ -27,6 +31,28 @@ export function unregisterItemMenu(): void {
   try {
     ztoolkit.Menu.unregister(MENU_ID)
     ztoolkit.Menu.unregister(SEP_ID)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 컬렉션 우클릭 메뉴: 이 컬렉션을 웹(Cloudflare)에 배포. */
+export function registerCollectionMenu(): void {
+  ztoolkit.Menu.register("collection", {
+    tag: "menuitem",
+    id: DEPLOY_ID,
+    label: getString("collectionmenu-deploy"),
+    icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
+    commandListener: () => {
+      void onDeployCommand()
+    },
+  })
+  log("collection menu 등록 완료")
+}
+
+export function unregisterCollectionMenu(): void {
+  try {
+    ztoolkit.Menu.unregister(DEPLOY_ID)
   } catch {
     /* ignore */
   }
@@ -192,4 +218,59 @@ async function onReviewCommand(): Promise<void> {
     getString("toast-batch-summary", { args: { ok, fail, skip, abort } }),
   )
   pw.startCloseTimer(10000)
+}
+
+async function onDeployCommand(): Promise<void> {
+  const pane =
+    (Zotero as any).getActiveZoteroPane?.() ?? (globalThis as any).ZoteroPane
+  const coll = pane?.getSelectedCollection?.()
+  if (!coll) {
+    toast(config.addonName)
+      .createLine({
+        type: "fail",
+        text: getString("toast-deploy-no-collection"),
+        progress: 100,
+      })
+      .show()
+      .startCloseTimer(4000)
+    return
+  }
+  const target = await resolveOutputTarget()
+  const topic = await topicForCollection(coll.name, target.root)
+  const pw = toast(config.addonName)
+    .createLine({
+      type: "default",
+      text: getString("toast-deploy-running", { args: { topic } }),
+      progress: 30,
+    })
+    .show()
+  try {
+    const r = await deployViaBridge(topic, target.root)
+    if (r.ok) {
+      pw.changeLine({
+        type: "success",
+        text: getString("toast-deploy-done", { args: { topic } }),
+        progress: 100,
+      })
+    } else {
+      const text =
+        r.reason === "no_cf_credentials"
+          ? getString("toast-deploy-no-cf")
+          : getString("toast-deploy-fail", {
+              args: { topic, err: String(r.reason ?? "") },
+            })
+      pw.changeLine({ type: "fail", text, progress: 100 })
+      log("deploy 실패", r.reason, r.tail)
+    }
+  } catch (e: any) {
+    pw.changeLine({
+      type: "fail",
+      text: getString("toast-deploy-fail", {
+        args: { topic, err: String(e?.message ?? e) },
+      }),
+      progress: 100,
+    })
+    log("onDeployCommand 예외", e)
+  }
+  pw.startCloseTimer(12000)
 }

@@ -61,6 +61,24 @@ async function pcCollectionTopicMap(pcRoot?: string): Promise<Record<string, str
  * ai4s/scisci 등)을 앞에 두어 primary_topic 이 임의 sub-collection 이름이 아니라 진짜
  * 토픽이 되게 한다. 비면 빈 배열(호출부가 uncategorized 폴백).
  */
+/** Collection display name -> paper-curation topic (config reverse map first,
+ *  else slugified name). Mirrors getItemTopics' resolution for a collection. */
+export async function topicForCollection(
+  name: string,
+  pcRoot?: string,
+): Promise<string> {
+  const pref = collectionTopicMap()
+  const pc = await pcCollectionTopicMap(pcRoot)
+  return (
+    pref[name] ||
+    pref[name.toLowerCase()] ||
+    pc[name] ||
+    pc[name.toLowerCase()] ||
+    pc[slugifyTopic(name)] ||
+    slugifyTopic(name)
+  )
+}
+
 export async function getItemTopics(
   item: Zotero.Item,
   pcRoot?: string,

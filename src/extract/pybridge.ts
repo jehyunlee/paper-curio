@@ -159,10 +159,13 @@ def main():
             from anthropic import Anthropic
             # 연결 생성 LLM 호출은 출력이 커서 느린 망에선 기본 180s 를 넘겨 타임아웃 →
             # 폴백으로 빠지고 JSON 영속화가 누락된다. env 로 상향(기본 500s).
+            # generate_connections_from_candidates 가 내부에서 with_options(request_timeout_s)
+            # 로 클라이언트 타임아웃을 덮어쓰므로, 같은 값을 명시적으로 전달해야 실제로 적용된다.
             _to = float(os.environ.get("PC_CONN_HTTP_TIMEOUT", "500"))
             client = Anthropic(timeout=_to, max_retries=2)  # ANTHROPIC_API_KEY env
             conns = generate_connections_from_candidates(
-                cand, topic_papers, client, priority_slugs=set([slug]))
+                cand, topic_papers, client, priority_slugs=set([slug]),
+                request_timeout_s=_to)
             out = conns.get(slug, [])
 
             try:

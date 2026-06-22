@@ -25,6 +25,7 @@ import {
   writeReviewViaBridge,
   extractOriginalityViaBridge,
   generateConnectionsViaBridge,
+  syncConnectionsViaBridge,
   injectFrontmatterViaBridge,
   classifyViaBridge,
   integrateViaBridge,
@@ -207,6 +208,17 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
         reason: c.reason,
       }))
       log(`connections TS 폴백: ${connections.length}건`)
+      // 브리지(LLM) 경로가 실패해 폴백으로 왔으므로, 폴백 연결을 토픽
+      // _paper_connections.json + global 에 직접 영속화한다(연결 갭 방지).
+      // 브리지 성공 경로는 내부에서 이미 sync 하므로 여기서만 보강.
+      try {
+        const synced = await syncConnectionsViaBridge(
+          primaryTopic, slug, slugDir, connections, target.root,
+        )
+        log(`connections 폴백 sync ${synced ? "OK" : "skip"}`)
+      } catch (e) {
+        log("connections 폴백 sync 실패(무시)", e)
+      }
     } catch (e) {
       log("connections TS 폴백 실패(무시)", e)
     }

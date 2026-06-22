@@ -157,7 +157,10 @@ def main():
                                      "essence": meta.get("essence", ""), "topics": [topic]})
 
             from anthropic import Anthropic
-            client = Anthropic(timeout=180.0, max_retries=4)  # ANTHROPIC_API_KEY env
+            # 연결 생성 LLM 호출은 출력이 커서 느린 망에선 기본 180s 를 넘겨 타임아웃 →
+            # 폴백으로 빠지고 JSON 영속화가 누락된다. env 로 상향(기본 500s).
+            _to = float(os.environ.get("PC_CONN_HTTP_TIMEOUT", "500"))
+            client = Anthropic(timeout=_to, max_retries=2)  # ANTHROPIC_API_KEY env
             conns = generate_connections_from_candidates(
                 cand, topic_papers, client, priority_slugs=set([slug]))
             out = conns.get(slug, [])
@@ -171,6 +174,37 @@ def main():
             print(json.dumps({"ok": True, "connections": out})); return
         except Exception as e:
             print(json.dumps({"ok": False, "reason": "error:%s" % e, "connections": []})); return
+
+    if cmd == "sync_conns":
+        # TS 폴백이 계산한 connections 를 토픽 _paper_connections.json + global 에 영속화.
+        # 브리지(LLM) 경로가 실패해 폴백으로 빠져도 Deep Research 그래프/본체 파이프라인이
+        # 이 논문을 보게 하여 연결 갭을 구조적으로 막는다.
+        # argv: <pc_root> sync_conns <slug> <topic> <conns_json_path>
+        slug, topic, conns_path = sys.argv[3], sys.argv[4], sys.argv[5]
+        try:
+            docs_root = os.path.join(pc_root, "docs")
+            topic_dir = os.path.join(docs_root, topic)
+            conns_in = json.load(open(conns_path, encoding="utf-8")) or []
+            # {slug,relation,reason} 만 남긴다(sync_topic_connections 가 기대하는 형식)
+            norm = [{"slug": c.get("slug"), "relation": c.get("relation", "alternative"),
+                     "reason": c.get("reason", "")}
+                    for c in conns_in if c.get("slug")]
+            if not norm:
+                print(json.dumps({"ok": True, "synced": 0})); return
+            # filter_for_topic 가 이 slug 를 떨궈내지 않도록 topic_slugs 에 포함
+            cls_path = os.path.join(topic_dir, "_new_classification.json")
+            slugs = []
+            if os.path.exists(cls_path):
+                slugs = [a["slug"] for a in
+                         json.load(open(cls_path, encoding="utf-8")).get("assignments", [])
+                         if a.get("slug")]
+            if slug not in slugs:
+                slugs = list(slugs) + [slug]
+            from lib.connections import sync_topic_connections
+            sync_topic_connections({slug: norm}, topic, slugs, topic_dir, log=lambda *a: None)
+            print(json.dumps({"ok": True, "synced": len(norm)})); return
+        except Exception as e:
+            print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
 
     if cmd == "inject_frontmatter":
         # 원본 inject_frontmatter.py의 per-paper 함수를 그대로 호출해 review.md에
@@ -528,6 +562,41 @@ export async function generateConnectionsViaBridge(
   } catch (e) {
     log("generateConnectionsViaBridge 예외", e)
     return null
+  }
+}
+
+/**
+ * TS 폴백이 계산한 connections 를 토픽 _paper_connections.json + global 에 영속화.
+ * 브리지(LLM) 경로가 실패해 폴백으로 빠져도 연결이 JSON 스토어에 남아 Deep Research
+ * 그래프/본체 파이프라인이 이 논문을 보게 한다(연결 갭 방지). LLM 불필요 → 키 불필요.
+ * 실패 시 false(무시 — 페이지엔 이미 연결이 주입돼 있음).
+ */
+export async function syncConnectionsViaBridge(
+  topic: string,
+  slug: string,
+  slugDir: string,
+  conns: ConnItem[],
+  pcRoot: string,
+): Promise<boolean> {
+  if (!pcRoot || !topic || !conns.length) return false
+  try {
+    const connsPath = joinPath(slugDir, "_pc_conn_sync.json")
+    await writeText(
+      connsPath,
+      JSON.stringify(
+        conns.map((c) => ({ slug: c.slug, relation: c.relation, reason: c.reason })),
+      ),
+    )
+    const script = await ensureBridgeScript()
+    const r = await runPython([script, pcRoot, "sync_conns", slug, topic, connsPath])
+    if (!r.ok) {
+      log("sync_conns 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
+      return false
+    }
+    return !!lastJson(r.stdout).ok
+  } catch (e) {
+    log("syncConnectionsViaBridge 예외", e)
+    return false
   }
 }
 

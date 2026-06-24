@@ -1,6 +1,6 @@
 {
   "name": "paper-curio",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Generate paper-curation reviews for Zotero items (Anthropic / OpenAI / Gemini)",
   "config": {
     "addonName": "Paper Curio",
@@ -9,7 +9,7 @@
     "addonInstance": "PaperCurio",
     "prefsPrefix": "extensions.zotero.papercurio",
     "releasePage": "https://github.com/jehyunlee/paper-curio/releases",
-    "updaterdf": "https://raw.githubusercontent.com/jehyunlee/paper-curio/bootstrap/update.json"
+    "updaterdf": "https://github.com/jehyunlee/paper-curio/releases/download/release/update.json"
   },
   "main": "src/index.ts",
   "scripts": {

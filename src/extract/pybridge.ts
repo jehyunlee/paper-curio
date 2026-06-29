@@ -171,6 +171,17 @@ def main():
             try:
                 from lib.connections import sync_topic_connections
                 sync_topic_connections(conns, topic, slugs, topic_dir, log=lambda *a: None)
+                # 신규 논문 N 의 연결 상대(이웃) 개별 페이지를 다시 렌더 — N→이웃 의
+                # 역방향 엣지(이웃→N)가 이웃의 "같이 보면 좋은 논문" 에 즉시 뜨도록.
+                # (N 자신의 페이지는 이후 단계가 렌더한다. 이웃은 _paper_connections 를
+                #  직접 읽으므로 sync 직후 재렌더하면 N 이 반영된다.)
+                try:
+                    import review_to_html as _RTH
+                    _neighbors = [c.get("slug") for c in out if c.get("slug")]
+                    if _neighbors:
+                        _RTH._run_review_to_html(slugs=_neighbors)
+                except Exception:
+                    pass  # 이웃 재렌더 실패해도 본 작업은 영향 없음
             except Exception:
                 pass  # 글로벌 동기화 실패해도 outgoing은 반환
 

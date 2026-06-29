@@ -245,10 +245,7 @@ def main():
         # inject_frontmatter 의 build_frontmatter 가 읽도록 한다.
         slug, topic = sys.argv[3], sys.argv[4]
         try:
-            import tempfile
             import classify_papers as C
-            from config_loader import get_topic_dir
-            from topic_modeling import extract_originalities, compute_embeddings
             docs = os.path.join(pc_root, "docs")
             def _has_model(t):
                 return bool(t) and os.path.exists(os.path.join(docs, t, "_hdbscan_model.joblib"))
@@ -257,39 +254,21 @@ def main():
             model_topic = next((t for t in cands if _has_model(t)), None)
             if not model_topic:
                 print(json.dumps({"ok": False, "reason": "no_model_topic:%s" % topic})); return
+            # Canonical classifier (원본 classify_papers._run_classify): 임베딩을
+            # 실제 _embeddings_cache.json 에 영속화 + {topic}/_new_classification.json
+            # 재기록 + _papers_index classifications + _umap_coords 까지 일괄 갱신한다.
+            # → 신규 논문이 연결/네트워크/인덱스 코퍼스의 1급 멤버가 된다.
+            # (기존 classify_via_bundle 경로는 인덱스 + 임시 임베딩만 써서, curio 논문이
+            #  분류는 됐어도 _new_classification.json·임베딩 캐시에 빠져 연결 패스에서
+            #  제외됐다. slugs=slug 로 해당 논문만 재분류하고 나머지는 보존.)
+            C._run_classify(model_topic, slugs=slug)
             idx_path = os.path.join(docs, "papers", "_papers_index.json")
             arr = json.load(open(idx_path, encoding="utf-8"))
             p = next((x for x in arr if x.get("slug") == slug), None)
             if p is None:
                 print(json.dumps({"ok": False, "reason": "not_in_index"})); return
-            bundle = C.load_bundle(str(get_topic_dir(model_topic)))
-            origs = extract_originalities([p])
-            if not origs:
-                print(json.dumps({"ok": False, "reason": "no_originality"})); return
-            tmp = tempfile.mktemp(suffix=".json")
-            embs, _slugs = compute_embeddings(origs, tmp)
-            try: os.remove(tmp)
-            except Exception: pass
-            primary, all_cats, sub, sub_map, _raw = C.classify_via_bundle(embs[0], bundle)
-            cls = {"primary_category": primary, "all_categories": all_cats,
-                   "sub_category": sub, "sub_categories": sub_map}
-            # 분류 결과는 분류에 쓴 (캐노니컬) model_topic 키 아래 저장 — 멀티토픽
-            # 논문이 토픽마다 올바른 카테고리를 갖도록(primary 키 고정 금지).
-            p.setdefault("classifications", {})[model_topic] = cls
-            json.dump(arr, open(idx_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-            # 신규 논문 시각화 좌표 — 번들 umap_2d/3d 로 투영해 _umap_coords.json 에
-            # 추가(network 에 제대로 배치되도록). 번들에 transformer 가 없거나 이미
-            # 좌표가 있으면 건너뛴다. integrate 단계의 generate_network 가 이를 읽는다.
-            try:
-                viz = C.compute_viz_coords([embs[0]], bundle)
-                if viz:
-                    cpath = os.path.join(docs, model_topic, "_umap_coords.json")
-                    coords = json.load(open(cpath, encoding="utf-8")) if os.path.exists(cpath) else {}
-                    if slug not in coords:
-                        coords[slug] = viz[0]
-                        json.dump(coords, open(cpath, "w", encoding="utf-8"), ensure_ascii=False)
-            except Exception:
-                pass
+            primary = ((p.get("classifications", {}) or {}).get(model_topic, {})
+                       or {}).get("primary_category")
             print(json.dumps({"ok": True, "primary_category": primary, "model_topic": model_topic})); return
         except Exception as e:
             print(json.dumps({"ok": False, "reason": "error:%s" % e})); return

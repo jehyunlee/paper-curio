@@ -285,13 +285,20 @@ def main():
             print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
 
     if cmd == "integrate":
-        # 신규 논문을 토픽 뷰에 반영: Deep Research(build_search_index) + category
-        # 페이지(build_topic_index) + network(generate_network) 재생성. 각 스크립트를
-        # py312 서브프로세스로 실행(청크 임베딩 캐시 히트라 비용 낮음). cwd=pc_root.
+        # 신규 논문을 토픽 뷰에 반영. 먼저 연결을 *완성*(extract_insights
+        # --connections-only)한 뒤 뷰를 렌더한다:
+        #   - extract_insights : 연결 완성. 신규 논문의 outbound 뿐 아니라 inbound/허브
+        #     까지 채우고 top-25 후보로 recall 을 넓힌다. conn 캐시(증분)라 전체
+        #     ~2만 개 재생성이 아니라 dirty(신규 + top-k 바뀐 이웃)만 → 저렴.
+        #   - build_search_index(Deep Research) + build_topic_index(category) +
+        #     generate_network(network) : 완성된 연결을 뷰에 반영. 청크 임베딩 캐시
+        #     히트라 비용 낮음.
+        # 각 스크립트를 py312 서브프로세스로 실행. cwd=pc_root.
         topic = sys.argv[3]
         import subprocess
         pipe = os.path.join(pc_root, "pipeline")
         steps = [
+            ("extract_insights.py", ["--topic", topic, "--connections-only"]),
             ("build_search_index.py", ["--topic", topic]),
             ("build_topic_index.py", [topic]),
             ("generate_network.py", ["--topic", topic]),

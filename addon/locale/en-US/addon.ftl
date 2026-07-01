@@ -1,5 +1,14 @@
 # Right-click menu
 itemmenu-review = paper-curation Review generation
+itemmenu-comparison = paper-curation Comparison
+
+# Toasts — comparison
+toast-compare-need-two = Select 2 or more papers to compare.
+toast-compare-too-many = Too many papers — select up to { $max }.
+toast-compare-missing = No review yet: { $titles } — run paper-curation Review first.
+toast-compare-running = Comparing { $n } papers… (takes 2-5 min incl. diagram)
+toast-compare-done = Comparison ready — opening in browser
+toast-compare-fail = Comparison failed: { $err }
 
 # Toasts — guards
 toast-no-items = No regular items selected.

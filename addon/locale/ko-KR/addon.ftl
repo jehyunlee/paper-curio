@@ -1,5 +1,14 @@
 # 우클릭 메뉴
 itemmenu-review = paper-curation Review 생성
+itemmenu-comparison = paper-curation Comparison
+
+# 토스트 — 비교
+toast-compare-need-two = 비교하려면 논문을 2편 이상 선택하세요.
+toast-compare-too-many = 논문이 너무 많습니다 — 최대 { $max }편까지.
+toast-compare-missing = 리뷰 없음: { $titles } — 먼저 paper-curation Review 를 실행하세요.
+toast-compare-running = 논문 { $n }편 비교 중… (다이어그램 포함 2~5분 소요)
+toast-compare-done = 비교 완료 — 브라우저에서 엽니다
+toast-compare-fail = 비교 실패: { $err }
 
 # 토스트 — 가드
 toast-no-items = 선택된 논문(regular item)이 없습니다.

@@ -5,12 +5,15 @@ import { processItem } from "../core/pipeline"
 import { hasAnyProvider, configuredProviders } from "../llm"
 import { menu as log } from "../utils/loggers"
 import { resolveOutputTarget } from "../core/pc-discovery"
-import { deployViaBridge } from "../extract/pybridge"
+import { deployViaBridge, compareViaBridge } from "../extract/pybridge"
 import { topicForCollection } from "../core/categorize"
+import { findExisting } from "../core/papers-index"
 
 const MENU_ID = `${config.addonRef}-itemmenu-review`
 const SEP_ID = `${config.addonRef}-itemmenu-sep`
+const COMPARE_ID = `${config.addonRef}-itemmenu-compare`
 const DEPLOY_ID = `${config.addonRef}-collectionmenu-deploy`
+const COMPARE_MAX = 6
 
 /** onMainWindowLoad에서 호출. 우클릭(item) 컨텍스트 메뉴에 단일 항목 등록. */
 export function registerItemMenu(): void {
@@ -24,12 +27,22 @@ export function registerItemMenu(): void {
       void onReviewCommand()
     },
   })
+  ztoolkit.Menu.register("item", {
+    tag: "menuitem",
+    id: COMPARE_ID,
+    label: getString("itemmenu-comparison"),
+    icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
+    commandListener: () => {
+      void onCompareCommand()
+    },
+  })
   log("item menu 등록 완료")
 }
 
 export function unregisterItemMenu(): void {
   try {
     ztoolkit.Menu.unregister(MENU_ID)
+    ztoolkit.Menu.unregister(COMPARE_ID)
     ztoolkit.Menu.unregister(SEP_ID)
   } catch {
     /* ignore */
@@ -218,6 +231,88 @@ async function onReviewCommand(): Promise<void> {
     getString("toast-batch-summary", { args: { ok, fail, skip, abort } }),
   )
   pw.startCloseTimer(10000)
+}
+
+/** 2편 이상 선택 → review.md 기반 비교 HTML 생성 → 기본 브라우저로 오픈. */
+async function onCompareCommand(): Promise<void> {
+  const targets = getSelectedRegularItems()
+  if (targets.length < 2 || targets.length > COMPARE_MAX) {
+    toast(config.addonName)
+      .createLine({
+        type: "fail",
+        text: getString(
+          targets.length < 2 ? "toast-compare-need-two" : "toast-compare-too-many",
+          { args: { max: COMPARE_MAX } },
+        ),
+        progress: 100,
+      })
+      .show()
+      .startCloseTimer(5000)
+    return
+  }
+
+  const target = await resolveOutputTarget()
+  const slugs: string[] = []
+  const missing: string[] = []
+  for (const it of targets) {
+    const entry = await findExisting(target.papersDir, {
+      doi: String(it.getField("DOI") || ""),
+      zoteroKey: it.key,
+      title: it.getDisplayTitle(),
+    })
+    if (entry?.slug) slugs.push(entry.slug)
+    else missing.push(it.getDisplayTitle().slice(0, 40))
+  }
+  if (missing.length) {
+    toast(config.addonName)
+      .createLine({
+        type: "fail",
+        text: getString("toast-compare-missing", {
+          args: { titles: missing.join(" / ") },
+        }),
+        progress: 100,
+      })
+      .show()
+      .startCloseTimer(8000)
+    return
+  }
+
+  const pw = toast(config.addonName)
+    .createLine({
+      type: "default",
+      text: getString("toast-compare-running", { args: { n: slugs.length } }),
+      progress: 30,
+    })
+    .show()
+  try {
+    const r = await compareViaBridge(slugs, target.root)
+    if (r.ok && r.html) {
+      pw.changeLine({
+        type: "success",
+        text: getString("toast-compare-done"),
+        progress: 100,
+      })
+      ;(Zotero as any).launchFile(r.html)
+    } else {
+      pw.changeLine({
+        type: "fail",
+        text: getString("toast-compare-fail", {
+          args: { err: String(r.reason ?? "") },
+        }),
+        progress: 100,
+      })
+    }
+  } catch (e: any) {
+    pw.changeLine({
+      type: "fail",
+      text: getString("toast-compare-fail", {
+        args: { err: String(e?.message ?? e) },
+      }),
+      progress: 100,
+    })
+    log("onCompareCommand 예외", e)
+  }
+  pw.startCloseTimer(8000)
 }
 
 async function onDeployCommand(): Promise<void> {

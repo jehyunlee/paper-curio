@@ -1,4 +1,4 @@
-import { getPrefStr } from "../utils/prefs"
+import { getPref, getPrefStr } from "../utils/prefs"
 import { getAnthropicKey, getGeminiKey } from "../utils/env"
 import { joinPath, writeText } from "../utils/fs"
 import { fs as log } from "../utils/loggers"
@@ -30,6 +30,7 @@ function pythonPath(): string {
  *  - connections <slug> <slug_dir> <topic> <meta_json> → specter2/compute_related/generate/sync
  *  - inject_frontmatter <slug> <topic> → inject_frontmatter.py build_frontmatter/…/inject_into_review
  *  - classify <slug> <topic> → classify_papers.classify_via_bundle (HDBSCAN approximate_predict)
+ *  - compare <slugs_csv> → compare_papers.run_compare (다중 논문 비교 HTML/md 생성)
  */
 const BRIDGE_PY = `import sys, os, json
 
@@ -351,6 +352,20 @@ def main():
                                 timeout=1800, env=env)
             tail = ((cp.stdout or "") + " " + (cp.stderr or ""))[-600:]
             print(json.dumps({"ok": cp.returncode == 0, "code": cp.returncode, "tail": tail})); return
+        except Exception as e:
+            print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
+
+    if cmd == "compare":
+        # Multi-paper comparison — compare_papers.run_compare writes
+        # docs/papers/_comparisons/<name>/{index.html, comparison.md} and
+        # returns {ok, html, md, dir, title}. Its progress logs go to stdout
+        # BEFORE the final JSON line, which lastJson() on the TS side skips.
+        slugs = [s.strip() for s in sys.argv[3].split(",") if s.strip()]
+        try:
+            import compare_papers as CP
+            print(json.dumps(CP.run_compare(slugs))); return
+        except SystemExit as e:
+            print(json.dumps({"ok": False, "reason": str(e)})); return
         except Exception as e:
             print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
 
@@ -744,5 +759,35 @@ export async function integrateViaBridge(
   } catch (e) {
     log("integrateViaBridge 예외", e)
     return false
+  }
+}
+
+/** 다중 논문 비교 — compare_papers.run_compare. 성공 시 생성된 HTML 절대경로 반환. */
+export async function compareViaBridge(
+  slugs: string[],
+  pcRoot: string,
+): Promise<{ ok: boolean; html?: string; title?: string; reason?: string }> {
+  if (!pcRoot || slugs.length < 2) return { ok: false, reason: "need_two_slugs" }
+  try {
+    const script = await ensureBridgeScript()
+    const env: Record<string, string> = {}
+    const a = getAnthropicKey()
+    if (a) env.ANTHROPIC_API_KEY = a
+    const g = getGeminiKey()
+    if (g) {
+      // Audio Overview 위젯에 키를 굽기 위해 (없으면 위젯이 브라우저에서 프롬프트)
+      env.GOOGLE_API_KEY = g
+      env.GEMINI_API_KEY = g
+    }
+    // 설정 토글 "논문 비교 그림 생성" — OFF면 PaperBanana 다이어그램 스킵 (수십 초로 단축)
+    if (getPref("COMPARE_IMAGE") === false) env.COMPARE_IMAGE = "0"
+    const r = await runPython([script, pcRoot, "compare", slugs.join(",")], env)
+    const j = lastJson(r.stdout)
+    if (r.ok && j?.ok) return { ok: true, html: j.html, title: j.title }
+    log("compare 브리지 실패", `code=${r.code}`, String(j?.reason ?? ""), r.stderr.slice(0, 200))
+    return { ok: false, reason: String(j?.reason ?? r.stderr.slice(-300) ?? "unknown") }
+  } catch (e) {
+    log("compareViaBridge 예외", e)
+    return { ok: false, reason: String(e) }
   }
 }

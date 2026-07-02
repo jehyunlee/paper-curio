@@ -5,7 +5,8 @@ itemmenu-comparison = paper-curation Comparison
 # Toasts — comparison
 toast-compare-need-two = Select 2 or more papers to compare.
 toast-compare-too-many = Too many papers — select up to { $max }.
-toast-compare-missing = No review yet: { $titles } — run paper-curation Review first.
+toast-compare-prereview = Reviewing { $n } paper(s) without a review first… (minutes each)
+toast-compare-prereview-fail = Comparison aborted — review failed: { $title } — { $err }
 toast-compare-running = Comparing { $n } papers… (takes 2-5 min incl. diagram)
 toast-compare-done = Comparison ready — opening in browser
 toast-compare-fail = Comparison failed: { $err }

@@ -233,7 +233,7 @@ async function onReviewCommand(): Promise<void> {
   pw.startCloseTimer(10000)
 }
 
-/** 2편 이상 선택 → review.md 기반 비교 HTML 생성 → 기본 브라우저로 오픈. */
+/** 2편 이상 선택 → (리뷰 없는 논문은 자동 생성) → 비교 HTML → 브라우저 오픈. */
 async function onCompareCommand(): Promise<void> {
   const targets = getSelectedRegularItems()
   if (targets.length < 2 || targets.length > COMPARE_MAX) {
@@ -252,38 +252,80 @@ async function onCompareCommand(): Promise<void> {
   }
 
   const target = await resolveOutputTarget()
-  const slugs: string[] = []
-  const missing: string[] = []
+  // 선택 순서가 P1, P2, ... 번호가 되므로 슬롯으로 순서를 보존한다.
+  const slotSlugs: (string | null)[] = []
+  const pending: { idx: number; item: Zotero.Item }[] = []
   for (const it of targets) {
     const entry = await findExisting(target.papersDir, {
       doi: String(it.getField("DOI") || ""),
       zoteroKey: it.key,
       title: it.getDisplayTitle(),
     })
-    if (entry?.slug) slugs.push(entry.slug)
-    else missing.push(it.getDisplayTitle().slice(0, 40))
+    if (entry?.slug) {
+      slotSlugs.push(entry.slug)
+    } else {
+      slotSlugs.push(null)
+      pending.push({ idx: slotSlugs.length - 1, item: it })
+    }
   }
-  if (missing.length) {
+
+  // 리뷰 자동 생성에는 LLM provider 가 필요하다 (Review 커맨드와 동일 가드).
+  if (pending.length && !hasAnyProvider()) {
     toast(config.addonName)
       .createLine({
         type: "fail",
-        text: getString("toast-compare-missing", {
-          args: { titles: missing.join(" / ") },
-        }),
+        text: getString("toast-no-provider"),
         progress: 100,
       })
       .show()
-      .startCloseTimer(8000)
+      .startCloseTimer(6000)
     return
   }
 
   const pw = toast(config.addonName)
     .createLine({
       type: "default",
-      text: getString("toast-compare-running", { args: { n: slugs.length } }),
-      progress: 30,
+      text: pending.length
+        ? getString("toast-compare-prereview", { args: { n: pending.length } })
+        : getString("toast-compare-running", { args: { n: targets.length } }),
+      progress: 10,
     })
     .show()
+
+  // 리뷰 없는 논문은 기존 리뷰 파이프라인으로 먼저 생성 (순차).
+  for (let i = 0; i < pending.length; i++) {
+    const { idx, item } = pending[i]
+    const title = item.getDisplayTitle()
+    pw.changeLine({
+      type: "default",
+      text: getString("toast-running-batch", {
+        args: { i: i + 1, n: pending.length, title },
+      }),
+      progress: 10 + Math.round((40 * i) / pending.length),
+    })
+    try {
+      const r = await processItem(item)
+      slotSlugs[idx] = r.slug
+    } catch (e: any) {
+      pw.changeLine({
+        type: "fail",
+        text: getString("toast-compare-prereview-fail", {
+          args: { title, err: String(e?.message ?? e) },
+        }),
+        progress: 100,
+      })
+      log("compare 사전 리뷰 실패", e)
+      pw.startCloseTimer(10000)
+      return
+    }
+  }
+
+  const slugs = slotSlugs.filter((s): s is string => !!s)
+  pw.changeLine({
+    type: "default",
+    text: getString("toast-compare-running", { args: { n: slugs.length } }),
+    progress: 55,
+  })
   try {
     const r = await compareViaBridge(slugs, target.root)
     if (r.ok && r.html) {

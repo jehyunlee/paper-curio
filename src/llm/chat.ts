@@ -16,6 +16,16 @@ export interface ChatMsg {
   content: string
 }
 
+export interface ChatUsage {
+  input: number
+  output: number
+}
+
+export interface ChatResult {
+  text: string
+  usage: ChatUsage
+}
+
 export interface ChatModelOption {
   provider: ChatProvider
   model: string
@@ -32,6 +42,36 @@ const PROVIDER_LABEL: Record<ChatProvider, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   gemini: "Gemini",
+}
+
+/**
+ * 모델별 대략 단가 (USD / 1M 토큰, input/output). 공시가 기반 추정치이며 실제
+ * 청구액과 다를 수 있다. 미등록 모델은 접두어 매칭 → 기본값 순으로 폴백.
+ */
+const PRICES: Record<string, { in: number; out: number }> = {
+  "claude-opus": { in: 15, out: 75 },
+  "claude-sonnet": { in: 3, out: 15 },
+  "claude-haiku": { in: 1, out: 5 },
+  "gpt-5": { in: 1.25, out: 10 },
+  "gpt-4.1": { in: 2, out: 8 },
+  "gemini-3.1-pro": { in: 1.25, out: 10 },
+  "gemini-3.5-flash": { in: 0.3, out: 2.5 },
+  "gemini-3.1-flash": { in: 0.3, out: 2.5 },
+}
+const DEFAULT_PRICE = { in: 3, out: 15 }
+
+function priceFor(model: string): { in: number; out: number } {
+  if (PRICES[model]) return PRICES[model]
+  for (const prefix of Object.keys(PRICES)) {
+    if (model.startsWith(prefix)) return PRICES[prefix]
+  }
+  return DEFAULT_PRICE
+}
+
+/** 누적 토큰 → 예상 비용(USD). */
+export function estimateCost(model: string, inTok: number, outTok: number): number {
+  const p = priceFor(model)
+  return (inTok * p.in + outTok * p.out) / 1_000_000
 }
 
 function keyFor(p: ChatProvider): string {
@@ -68,13 +108,17 @@ export function availableChatModels(): ChatModelOption[] {
   return out
 }
 
-/** 멀티턴 대화 1턴. system(논문 컨텍스트) + 히스토리 → assistant 답변 텍스트. */
+function num(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : 0
+}
+
+/** 멀티턴 대화 1턴. system(논문 컨텍스트) + 히스토리 → 답변 + 토큰 usage. */
 export async function chatComplete(
   provider: ChatProvider,
   model: string,
   system: string,
   messages: ChatMsg[],
-): Promise<string> {
+): Promise<ChatResult> {
   const key = keyFor(provider)
   if (!key) throw new Error(`${PROVIDER_LABEL[provider]} API key가 설정되지 않았습니다.`)
 
@@ -87,7 +131,10 @@ export async function chatComplete(
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
     })
     const block = (r.content || []).find((b: any) => b.type === "text") as any
-    return block?.text || ""
+    return {
+      text: block?.text || "",
+      usage: { input: num(r.usage?.input_tokens), output: num(r.usage?.output_tokens) },
+    }
   }
 
   if (provider === "openai") {
@@ -99,7 +146,13 @@ export async function chatComplete(
         ...messages.map((m) => ({ role: m.role, content: m.content })),
       ],
     })
-    return r.choices?.[0]?.message?.content || ""
+    return {
+      text: r.choices?.[0]?.message?.content || "",
+      usage: {
+        input: num((r as any).usage?.prompt_tokens),
+        output: num((r as any).usage?.completion_tokens),
+      },
+    }
   }
 
   // gemini
@@ -111,10 +164,18 @@ export async function chatComplete(
       parts: [{ text: m.content }],
     })),
   })
+  const um = (r.response as any)?.usageMetadata || {}
+  let text = ""
   try {
-    return r.response.text() || ""
+    text = r.response.text() || ""
   } catch (e) {
     log("gemini chat 응답 파싱 실패", e)
-    return ""
+  }
+  return {
+    text,
+    usage: {
+      input: num(um.promptTokenCount),
+      output: num(um.candidatesTokenCount) + num(um.thoughtsTokenCount),
+    },
   }
 }

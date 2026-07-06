@@ -1,6 +1,7 @@
 # 우클릭 메뉴
 itemmenu-review = paper-curation Review 생성
 itemmenu-comparison = paper-curation Comparison
+itemmenu-open-review = paper-curation Review HTML 열기
 
 # 토스트 — 비교
 toast-compare-need-two = 비교하려면 논문을 2편 이상 선택하세요.
@@ -35,3 +36,7 @@ toast-deploy-running = 웹 배포 중: { $topic } … (1~2분 소요)
 toast-deploy-done = 웹 배포 완료: { $topic }
 toast-deploy-fail = 웹 배포 실패: { $topic } — { $err }
 toast-deploy-no-cf = Cloudflare 자격증명이 없습니다. config.json의 cloudflare.api_token / cloudflare.account_id 를 추가하거나 CF_API_TOKEN·CLOUDFLARE_ACCOUNT_ID 환경변수를 설정하세요.
+
+# 토스트 — Review HTML 열기
+toast-open-review-opened = Review HTML { $opened }개 열었습니다 (없음 { $missing })
+toast-open-review-none = 생성된 Review HTML이 없습니다 — 먼저 'paper-curation Review 생성'을 실행하세요.

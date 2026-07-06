@@ -8,10 +8,12 @@ import { resolveOutputTarget } from "../core/pc-discovery"
 import { deployViaBridge, compareViaBridge } from "../extract/pybridge"
 import { topicForCollection } from "../core/categorize"
 import { findExisting } from "../core/papers-index"
+import { joinPath, pathExists } from "../utils/fs"
 
 const MENU_ID = `${config.addonRef}-itemmenu-review`
 const SEP_ID = `${config.addonRef}-itemmenu-sep`
 const COMPARE_ID = `${config.addonRef}-itemmenu-compare`
+const OPEN_REVIEW_ID = `${config.addonRef}-itemmenu-open-review`
 const DEPLOY_ID = `${config.addonRef}-collectionmenu-deploy`
 const COMPARE_MAX = 6
 
@@ -29,6 +31,15 @@ export function registerItemMenu(): void {
   })
   ztoolkit.Menu.register("item", {
     tag: "menuitem",
+    id: OPEN_REVIEW_ID,
+    label: getString("itemmenu-open-review"),
+    icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
+    commandListener: () => {
+      void onOpenReviewCommand()
+    },
+  })
+  ztoolkit.Menu.register("item", {
+    tag: "menuitem",
     id: COMPARE_ID,
     label: getString("itemmenu-comparison"),
     icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
@@ -42,6 +53,7 @@ export function registerItemMenu(): void {
 export function unregisterItemMenu(): void {
   try {
     ztoolkit.Menu.unregister(MENU_ID)
+    ztoolkit.Menu.unregister(OPEN_REVIEW_ID)
     ztoolkit.Menu.unregister(COMPARE_ID)
     ztoolkit.Menu.unregister(SEP_ID)
   } catch {
@@ -233,6 +245,54 @@ async function onReviewCommand(): Promise<void> {
   pw.startCloseTimer(10000)
 }
 
+/** 선택 논문의 이미 생성된 review HTML(index.html)을 브라우저로 연다. 생성은 하지 않음. */
+async function onOpenReviewCommand(): Promise<void> {
+  const targets = getSelectedRegularItems()
+  if (targets.length === 0) {
+    toast(config.addonName)
+      .createLine({ type: "fail", text: getString("toast-no-items"), progress: 100 })
+      .show()
+      .startCloseTimer(4000)
+    return
+  }
+
+  const target = await resolveOutputTarget()
+  let opened = 0
+  let missing = 0
+  for (const it of targets) {
+    try {
+      const entry = await findExisting(target.papersDir, {
+        doi: String(it.getField("DOI") || ""),
+        zoteroKey: it.key,
+        title: it.getDisplayTitle(),
+      })
+      const htmlPath = entry?.slug
+        ? joinPath(target.papersDir, entry.slug, "index.html")
+        : null
+      if (htmlPath && (await pathExists(htmlPath))) {
+        ;(Zotero as any).launchFile(htmlPath)
+        opened++
+      } else {
+        missing++
+      }
+    } catch (e) {
+      missing++
+      log("open review 실패", e)
+    }
+  }
+
+  toast(config.addonName)
+    .createLine({
+      type: opened > 0 ? "success" : "fail",
+      text:
+        opened > 0
+          ? getString("toast-open-review-opened", { args: { opened, missing } })
+          : getString("toast-open-review-none"),
+      progress: 100,
+    })
+    .show()
+    .startCloseTimer(opened > 0 ? 4000 : 6000)
+}
 /** 2편 이상 선택 → (리뷰 없는 논문은 자동 생성) → 비교 HTML → 브라우저 오픈. */
 async function onCompareCommand(): Promise<void> {
   const targets = getSelectedRegularItems()

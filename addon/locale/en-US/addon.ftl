@@ -1,6 +1,7 @@
 # Right-click menu
 itemmenu-review = paper-curation Review generation
 itemmenu-comparison = paper-curation Comparison
+itemmenu-open-review = Open paper-curation Review HTML
 
 # Toasts — comparison
 toast-compare-need-two = Select 2 or more papers to compare.
@@ -35,3 +36,7 @@ toast-deploy-running = Deploying to web: { $topic } … (takes 1-2 min)
 toast-deploy-done = Web deploy complete: { $topic }
 toast-deploy-fail = Web deploy failed: { $topic } — { $err }
 toast-deploy-no-cf = No Cloudflare credentials. Add cloudflare.api_token / cloudflare.account_id to config.json, or set CF_API_TOKEN / CLOUDFLARE_ACCOUNT_ID env vars.
+
+# Toasts — open review HTML
+toast-open-review-opened = Opened { $opened } review HTML file(s) ({ $missing } missing)
+toast-open-review-none = No generated review HTML found — run 'paper-curation Review generation' first.

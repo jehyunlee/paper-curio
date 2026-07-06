@@ -1,4 +1,5 @@
 import { marked } from "marked"
+import katex from "katex"
 import { DialogHelper } from "zotero-plugin-toolkit"
 import { config } from "../../package.json"
 import { getString } from "../utils/locale"
@@ -16,13 +17,13 @@ import { menu as log } from "../utils/loggers"
 const MAX_CTX_CHARS = 120_000
 
 const CHAT_CSS = `
-.pc-root { display:flex; flex-direction:column; gap:10px; width:100%; box-sizing:border-box; padding:2px 2px 4px;
+.pc-root { display:flex; flex-direction:column; gap:10px; width:100%; box-sizing:border-box; padding:8px 10px 12px;
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Noto Sans KR",Segoe UI,sans-serif; color:#111827; }
 .pc-header { display:flex; align-items:center; gap:10px; }
 .pc-select { flex:0 1 auto; max-width:62%; font-size:13px; padding:6px 9px; border:1px solid #e5e7eb;
   border-radius:10px; background:#fff; color:#111827; }
 .pc-cost { margin-left:auto; font-size:11.5px; color:#98a2b3; white-space:nowrap; cursor:help; }
-.pc-log { flex:1 1 auto; height:52vh; min-height:240px; overflow-y:auto; border:1px solid #eef0f2;
+.pc-log { height:calc(100vh - 210px); min-height:160px; overflow-y:auto; border:1px solid #eef0f2;
   border-radius:16px; padding:14px; background:#fbfbfc; display:flex; flex-direction:column; gap:10px; }
 .pc-msg { max-width:88%; padding:9px 13px; border-radius:16px; font-size:13.5px; line-height:1.62; overflow-wrap:anywhere; }
 .pc-msg.user { align-self:flex-end; background:#2563eb; color:#fff; border-bottom-right-radius:6px; white-space:pre-wrap; }
@@ -39,38 +40,66 @@ const CHAT_CSS = `
 .pc-msg blockquote { margin:4px 0; padding:2px 12px; border-left:3px solid #e5e7eb; color:#475467; }
 .pc-msg table { border-collapse:collapse; margin:6px 0; font-size:12.5px; }
 .pc-msg th,.pc-msg td { border:1px solid #e5e7eb; padding:4px 8px; }
-.pc-composer { display:flex; gap:10px; align-items:stretch; }
-.pc-input { flex:1 1 auto; width:100%; box-sizing:border-box; resize:vertical; min-height:66px; max-height:220px;
+.pc-msg .katex-display { margin:6px 0; overflow-x:auto; overflow-y:hidden; }
+.pc-composer { display:flex; gap:8px; align-items:flex-end; }
+.pc-input { flex:1 1 auto; width:100%; box-sizing:border-box; resize:none; min-height:64px; max-height:120px;
   padding:11px 14px; border:1px solid #e5e7eb; border-radius:16px; font-family:inherit; font-size:13.5px; line-height:1.5; outline:none; }
 .pc-input:focus { border-color:#93c5fd; box-shadow:0 0 0 3px rgba(37,99,235,.12); }
-.pc-actions { display:flex; flex-direction:column; gap:8px; justify-content:flex-end; }
-.pc-btn { border:none; border-radius:999px; padding:10px 22px; font-size:13px; font-weight:600; cursor:pointer;
-  transition:background .15s ease, color .15s ease, opacity .15s ease; font-family:inherit; }
+.pc-actions { display:flex; gap:8px; align-items:flex-end; }
+.pc-btn { width:46px; height:46px; flex:0 0 auto; border:none; border-radius:14px; font-size:17px; font-weight:600;
+  cursor:pointer; display:grid; place-items:center; transition:background .15s ease, color .15s ease; font-family:inherit; }
 .pc-btn-primary { background:#2563eb; color:#fff; }
 .pc-btn-primary:hover { background:#1d4ed8; }
 .pc-btn-primary:disabled { background:#bfdbfe; cursor:default; }
-.pc-btn-ghost { background:transparent; color:#667085; }
-.pc-btn-ghost:hover { background:#f3f4f6; color:#111827; }
+.pc-btn-ghost { background:#f3f4f6; color:#667085; }
+.pc-btn-ghost:hover { background:#e5e7eb; color:#111827; }
 `
-
-/** LLM 마크다운 → 안전한 HTML (chrome 다이얼로그이므로 스크립트/이벤트 핸들러 제거). */
-function renderMarkdown(md: string): string {
-  let html = ""
-  try {
-    html = String((marked as any).parse(md, { breaks: true, headerIds: false, mangle: false }))
-  } catch {
-    return escapeHtml(md)
-  }
-  return html
-    .replace(/<\s*(script|style|iframe|object|embed|link|meta)\b[\s\S]*?(<\/\s*\1\s*>|$)/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/(href|src)\s*=\s*("|')\s*(javascript|data):[^"']*\2/gi, '$1="#"')
-}
 
 function escapeHtml(s: string): string {
   return String(s ?? "").replace(/[&<>"']/g, (ch) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] as string,
   )
+}
+
+function renderMath(tex: string, display: boolean): string {
+  try {
+    return katex.renderToString(tex.trim(), {
+      displayMode: display,
+      throwOnError: false,
+      strict: "ignore",
+    })
+  } catch {
+    return escapeHtml((display ? "$$" : "$") + tex + (display ? "$$" : "$"))
+  }
+}
+
+/** LLM 마크다운 → 안전한 HTML. 수식($$…$$, \[…\], \(…\), $…$)은 마스킹 후 KaTeX 렌더. */
+function renderMarkdown(md: string): string {
+  const store: { t: string; d: boolean }[] = []
+  const mask = (t: string, d: boolean) => {
+    store.push({ t, d })
+    return `@@PCMATH${store.length - 1}@@`
+  }
+  const masked = md
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_m, t) => mask(t, true))
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_m, t) => mask(t, true))
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_m, t) => mask(t, false))
+    .replace(/\$(\S[^\n$]*?)\$/g, (_m, t) => mask(t, false))
+
+  let html = ""
+  try {
+    html = String((marked as any).parse(masked, { breaks: true, headerIds: false, mangle: false }))
+  } catch {
+    html = escapeHtml(md)
+  }
+  html = html
+    .replace(/<\s*(script|style|iframe|object|embed|link|meta)\b[\s\S]*?(<\/\s*\1\s*>|$)/gi, "")
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/(href|src)\s*=\s*("|')\s*(javascript|data):[^"']*\2/gi, '$1="#"')
+  return html.replace(/@@PCMATH(\d+)@@/g, (_m, i) => {
+    const e = store[Number(i)]
+    return e ? renderMath(e.t, e.d) : ""
+  })
 }
 
 function toastLine(type: "default" | "success" | "fail", text: string, ms = 4000) {
@@ -152,7 +181,8 @@ export async function openChatForSelection(): Promise<void> {
   const systemText =
     "당신은 학술 논문 분석 도우미입니다. 아래 논문을 근거로 사용자 질문에 정확하고 구체적으로 답하세요. " +
     "본문에 없는 내용은 추측임을 명시하고, 가능하면 어느 부분(섹션/그림/수식)에 근거했는지 밝히세요. " +
-    "답변은 읽기 좋게 마크다운으로 작성하고, 사용자가 쓴 언어(한국어면 한국어)로 답합니다.\n\n" +
+    "답변은 읽기 좋게 마크다운으로 작성하고, 수식은 LaTeX($…$ 또는 $$…$$)로 표기하세요. " +
+    "사용자가 쓴 언어(한국어면 한국어)로 답합니다.\n\n" +
     `=== 논문 메타 ===\n${metaBlock}\n\n` +
     (text
       ? `=== 논문 전문${truncated ? " (분량 초과로 일부 생략) " : ""} ===\n${text}`
@@ -214,8 +244,22 @@ export async function openChatForSelection(): Promise<void> {
             namespace: "html",
             classList: ["pc-actions"],
             children: [
-              { tag: "button", namespace: "html", id: "pc-send", classList: ["pc-btn", "pc-btn-primary"], properties: { textContent: getString("chat-send") } },
-              { tag: "button", namespace: "html", id: "pc-close", classList: ["pc-btn", "pc-btn-ghost"], properties: { textContent: getString("chat-close") } },
+              {
+                tag: "button",
+                namespace: "html",
+                id: "pc-send",
+                classList: ["pc-btn", "pc-btn-primary"],
+                attributes: { title: getString("chat-send") },
+                properties: { textContent: "➤" },
+              },
+              {
+                tag: "button",
+                namespace: "html",
+                id: "pc-close",
+                classList: ["pc-btn", "pc-btn-ghost"],
+                attributes: { title: getString("chat-close") },
+                properties: { textContent: "✕" },
+              },
             ],
           },
         ],
@@ -244,7 +288,7 @@ export async function openChatForSelection(): Promise<void> {
     const btn = doc().getElementById("pc-send") as HTMLButtonElement | null
     if (btn) {
       btn.disabled = on
-      btn.textContent = on ? getString("chat-thinking") : getString("chat-send")
+      btn.textContent = on ? "…" : "➤"
     }
   }
 
@@ -297,6 +341,15 @@ export async function openChatForSelection(): Promise<void> {
     loadCallback: () => {
       try {
         const d = doc()
+        // KaTeX 글리프 스타일 (chrome 번들)
+        const link = dialog.createElement(d, "link", {
+          namespace: "html",
+          attributes: {
+            rel: "stylesheet",
+            href: `chrome://${config.addonRef}/content/katex/katex.min.css`,
+          },
+        })
+        d.documentElement.appendChild(link)
         ;(d.getElementById("pc-send") as HTMLButtonElement | null)?.addEventListener("click", () => void onSend())
         ;(d.getElementById("pc-close") as HTMLButtonElement | null)?.addEventListener("click", () => dialog.window.close())
         const input = d.getElementById("pc-chat-input") as HTMLTextAreaElement | null
@@ -315,9 +368,12 @@ export async function openChatForSelection(): Promise<void> {
     },
   })
 
+  const mw: any = Zotero.getMainWindow()
+  const availH = Number(mw?.screen?.availHeight) || 900
+  const availW = Number(mw?.screen?.availWidth) || 1200
   dialog.open(getString("chat-title", { args: { title: meta.title } }), {
-    width: 900,
-    height: 720,
+    width: Math.min(1000, Math.max(700, Math.round(availW * 0.55))),
+    height: Math.max(360, Math.round(availH / 2)),
     centerscreen: true,
     resizable: true,
   })

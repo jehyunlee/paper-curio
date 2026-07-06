@@ -1,6 +1,6 @@
 {
   "name": "paper-curio",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Generate paper-curation reviews for Zotero items (Anthropic / OpenAI / Gemini)",
   "config": {
     "addonName": "Paper Curio",
@@ -32,6 +32,7 @@
     "@esbuild-plugins/node-globals-polyfill": "^0.2.3",
     "@esbuild-plugins/node-modules-polyfill": "^0.2.2",
     "@google/generative-ai": "^0.21.0",
+    "katex": "^0.16.47",
     "marked": "^4.3.0",
     "openai": "^4.79.1",
     "zotero-plugin-toolkit": "^4.1.1"

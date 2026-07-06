@@ -1,6 +1,7 @@
 # Right-click menu
 itemmenu-review = paper-curation Review generation
 itemmenu-comparison = paper-curation Comparison
+itemmenu-chat = paper-curation AI Chat (PDF Q&A)
 itemmenu-open-review = Open paper-curation Review HTML
 
 # Toasts — comparison
@@ -40,3 +41,17 @@ toast-deploy-no-cf = No Cloudflare credentials. Add cloudflare.api_token / cloud
 # Toasts — open review HTML
 toast-open-review-opened = Opened { $opened } review HTML file(s) ({ $missing } missing)
 toast-open-review-none = No generated review HTML found — run 'paper-curation Review generation' first.
+
+# AI chat (PDF Q&A)
+toast-chat-extracting = Extracting PDF text: { $title }
+toast-chat-ready = PDF ready — { $chars } chars / { $pages }p
+toast-chat-no-pdf = No PDF text found — chatting from metadata only.
+chat-title = AI Chat — { $title }
+chat-model-label = Model
+chat-input-placeholder = Ask about this paper… (Enter to send, Shift+Enter for newline)
+chat-send = Send
+chat-close = Close
+chat-thinking = Thinking…
+chat-empty-reply = (empty reply)
+chat-greeting = Ask anything about "{ $title }". Answers use the full PDF as context.
+chat-no-pdf-note = No PDF — metadata only

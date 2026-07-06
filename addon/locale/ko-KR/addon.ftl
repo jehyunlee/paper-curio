@@ -1,6 +1,7 @@
 # 우클릭 메뉴
 itemmenu-review = paper-curation Review 생성
 itemmenu-comparison = paper-curation Comparison
+itemmenu-chat = paper-curation AI 대화 (PDF Q&A)
 itemmenu-open-review = paper-curation Review HTML 열기
 
 # 토스트 — 비교
@@ -40,3 +41,17 @@ toast-deploy-no-cf = Cloudflare 자격증명이 없습니다. config.json의 clo
 # 토스트 — Review HTML 열기
 toast-open-review-opened = Review HTML { $opened }개 열었습니다 (없음 { $missing })
 toast-open-review-none = 생성된 Review HTML이 없습니다 — 먼저 'paper-curation Review 생성'을 실행하세요.
+
+# AI 대화 (PDF Q&A)
+toast-chat-extracting = PDF 텍스트 추출 중: { $title }
+toast-chat-ready = PDF 준비 완료 — { $chars }자 / { $pages }p
+toast-chat-no-pdf = PDF 텍스트를 찾지 못했습니다 — 메타데이터로만 대화합니다.
+chat-title = AI 대화 — { $title }
+chat-model-label = 모델
+chat-input-placeholder = 이 논문에 대해 질문하세요… (Enter 전송, Shift+Enter 줄바꿈)
+chat-send = 보내기
+chat-close = 닫기
+chat-thinking = 생성 중…
+chat-empty-reply = (빈 응답)
+chat-greeting = 논문 "{ $title }"에 대해 무엇이든 물어보세요. PDF 전문을 컨텍스트로 답합니다.
+chat-no-pdf-note = PDF 없음 — 메타데이터 기반

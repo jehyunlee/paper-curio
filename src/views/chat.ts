@@ -306,6 +306,40 @@ export async function openChatForSelection(): Promise<void> {
     logEl.scrollTop = logEl.scrollHeight
   }
 
+  /**
+   * 스트리밍 답변용 빈 assistant 말풍선. 조각이 도착할 때마다 raw 텍스트로 live
+   * 갱신하고(빠름), 완료 시 마크다운/수식으로 최종 렌더한다.
+   */
+  function appendAssistantStreaming() {
+    const logEl = doc().getElementById("pc-chat-log") as HTMLElement | null
+    const bubble = dialog.createElement(doc(), "div", {
+      namespace: "html",
+      classList: ["pc-msg", "ai"],
+    }) as HTMLElement
+    bubble.style.whiteSpace = "pre-wrap"
+    if (logEl) {
+      logEl.appendChild(bubble)
+      logEl.scrollTop = logEl.scrollHeight
+    }
+    const scroll = () => {
+      if (logEl) logEl.scrollTop = logEl.scrollHeight
+    }
+    return {
+      update(acc: string) {
+        bubble.textContent = acc
+        scroll()
+      },
+      finalize(md: string) {
+        bubble.style.whiteSpace = ""
+        bubble.innerHTML = renderMarkdown(md)
+        scroll()
+      },
+      remove() {
+        bubble.remove()
+      },
+    }
+  }
+
   async function onSend(): Promise<void> {
     if (busy) return
     const sel = doc().getElementById("pc-chat-model") as HTMLSelectElement | null
@@ -319,16 +353,25 @@ export async function openChatForSelection(): Promise<void> {
     appendBubble("user", question)
     messages.push({ role: "user", content: question })
     setBusy(true)
+    const streamBubble = appendAssistantStreaming()
+    let acc = ""
     try {
-      const res = await chatComplete(provider, model, systemText, messages)
-      const answer = res.text || getString("chat-empty-reply")
+      const res = await chatComplete(provider, model, systemText, messages, (delta) => {
+        acc += delta
+        streamBubble.update(acc)
+      })
+      const answer = res.text || acc || getString("chat-empty-reply")
       messages.push({ role: "assistant", content: answer })
-      appendBubble("assistant", answer)
-      totalIn += res.usage.input
-      totalOut += res.usage.output
-      totalCost += estimateCost(model, res.usage.input, res.usage.output)
+      streamBubble.finalize(answer)
+      const u = res.usage
+      // 표시용 input은 캐시 토큰까지 합산(실제 처리량), 비용은 캐시 할인 반영.
+      totalIn += u.input + (u.cacheWrite || 0) + (u.cacheRead || 0)
+      totalOut += u.output
+      totalCost += estimateCost(model, u.input, u.output, u.cacheWrite || 0, u.cacheRead || 0)
       updateCost()
     } catch (e: any) {
+      if (acc) streamBubble.finalize(acc)
+      else streamBubble.remove()
       appendBubble("error", String(e?.message ?? e))
       log("chat 호출 실패", e)
     } finally {

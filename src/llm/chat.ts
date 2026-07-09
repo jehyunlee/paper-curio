@@ -19,6 +19,10 @@ export interface ChatMsg {
 export interface ChatUsage {
   input: number
   output: number
+  /** 캐시 생성(쓰기) 토큰 — 첫 턴에 system(논문)을 캐시에 적재할 때. */
+  cacheWrite?: number
+  /** 캐시 적중(읽기) 토큰 — 후속 턴에 캐시된 system을 재사용할 때. */
+  cacheRead?: number
 }
 
 export interface ChatResult {
@@ -68,10 +72,25 @@ function priceFor(model: string): { in: number; out: number } {
   return DEFAULT_PRICE
 }
 
-/** 누적 토큰 → 예상 비용(USD). */
-export function estimateCost(model: string, inTok: number, outTok: number): number {
+/**
+ * 누적 토큰 → 예상 비용(USD). 캐시 토큰은 Anthropic 5분 ephemeral 캐시 기준
+ * (write ≈ 1.25× input, read ≈ 0.1× input)으로 환산한다. 추정치.
+ */
+export function estimateCost(
+  model: string,
+  inTok: number,
+  outTok: number,
+  cacheWrite = 0,
+  cacheRead = 0,
+): number {
   const p = priceFor(model)
-  return (inTok * p.in + outTok * p.out) / 1_000_000
+  return (
+    (inTok * p.in +
+      outTok * p.out +
+      cacheWrite * p.in * 1.25 +
+      cacheRead * p.in * 0.1) /
+    1_000_000
+  )
 }
 
 function keyFor(p: ChatProvider): string {
@@ -112,40 +131,89 @@ function num(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0
 }
 
-/** 멀티턴 대화 1턴. system(논문 컨텍스트) + 히스토리 → 답변 + 토큰 usage. */
+/**
+ * 멀티턴 대화 1턴. system(논문 컨텍스트) + 히스토리 → 답변 + 토큰 usage.
+ *
+ * onDelta가 주어지면 스트리밍으로 호출하고 생성되는 텍스트 조각을 그때그때
+ * 콜백으로 흘려보낸다(없으면 완성본만 한 번에 반환). Anthropic은 system(논문
+ * 전문) 블록에 ephemeral prompt caching을 걸어, 5분 내 후속 질문이 같은 논문을
+ * 매번 다시 처리하지 않고 캐시에서 재사용하도록 한다(입력비 ~1/10).
+ */
 export async function chatComplete(
   provider: ChatProvider,
   model: string,
   system: string,
   messages: ChatMsg[],
+  onDelta?: (delta: string) => void,
 ): Promise<ChatResult> {
   const key = keyFor(provider)
   if (!key) throw new Error(`${PROVIDER_LABEL[provider]} API key가 설정되지 않았습니다.`)
 
   if (provider === "anthropic") {
     const c = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true })
-    const r = await c.messages.create({
+    const params = {
       model,
       max_tokens: 4096,
-      system,
+      // system을 content 블록 배열로 주고 cache_control을 걸어야 캐싱된다.
+      // 논문 전문이 여기 실리므로 캐시 효과가 가장 크다.
+      system: [
+        {
+          type: "text" as const,
+          text: system,
+          cache_control: { type: "ephemeral" as const },
+        },
+      ],
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    })
-    const block = (r.content || []).find((b: any) => b.type === "text") as any
+    }
+    const stream = c.messages.stream(params)
+    if (onDelta) stream.on("text", (t: string) => onDelta(t))
+    const final = await stream.finalMessage()
+    const block = (final.content || []).find((b: any) => b.type === "text") as any
+    const u: any = final.usage || {}
     return {
       text: block?.text || "",
-      usage: { input: num(r.usage?.input_tokens), output: num(r.usage?.output_tokens) },
+      usage: {
+        input: num(u.input_tokens),
+        output: num(u.output_tokens),
+        cacheWrite: num(u.cache_creation_input_tokens),
+        cacheRead: num(u.cache_read_input_tokens),
+      },
     }
   }
 
   if (provider === "openai") {
     const c = new OpenAI({ apiKey: key, dangerouslyAllowBrowser: true })
-    const r = await c.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: system },
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
-      ],
-    })
+    const msgs = [
+      { role: "system" as const, content: system },
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+    ]
+    if (onDelta) {
+      // OpenAI는 프롬프트 캐싱이 자동(>1024토큰)이라 별도 파라미터가 없다.
+      const s = await c.chat.completions.create({
+        model,
+        messages: msgs,
+        stream: true,
+        stream_options: { include_usage: true },
+      })
+      let text = ""
+      let usage: any = {}
+      for await (const chunk of s) {
+        const delta = chunk.choices?.[0]?.delta?.content
+        if (delta) {
+          text += delta
+          onDelta(delta)
+        }
+        if ((chunk as any).usage) usage = (chunk as any).usage
+      }
+      return {
+        text,
+        usage: {
+          input: num(usage.prompt_tokens),
+          output: num(usage.completion_tokens),
+        },
+      }
+    }
+    const r = await c.chat.completions.create({ model, messages: msgs })
     return {
       text: r.choices?.[0]?.message?.content || "",
       usage: {
@@ -155,15 +223,42 @@ export async function chatComplete(
     }
   }
 
-  // gemini
+  // gemini — 명시적 캐싱은 별도 CachedContent 흐름이 필요해 여기선 생략
+  // (Gemini 2.5+ 는 implicit caching이 자동 적용됨).
   const genAI = new GoogleGenerativeAI(key)
   const gm = genAI.getGenerativeModel({ model, systemInstruction: system })
-  const r = await gm.generateContent({
+  const req = {
     contents: messages.map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     })),
-  })
+  }
+  if (onDelta) {
+    const result = await gm.generateContentStream(req)
+    let text = ""
+    for await (const chunk of result.stream) {
+      let d = ""
+      try {
+        d = chunk.text() || ""
+      } catch {
+        d = ""
+      }
+      if (d) {
+        text += d
+        onDelta(d)
+      }
+    }
+    const final = await result.response
+    const um: any = (final as any)?.usageMetadata || {}
+    return {
+      text,
+      usage: {
+        input: num(um.promptTokenCount),
+        output: num(um.candidatesTokenCount) + num(um.thoughtsTokenCount),
+      },
+    }
+  }
+  const r = await gm.generateContent(req)
   const um = (r.response as any)?.usageMetadata || {}
   let text = ""
   try {

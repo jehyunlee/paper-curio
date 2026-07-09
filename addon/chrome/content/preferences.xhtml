@@ -146,4 +146,26 @@
       style="opacity: 0.7; font-size: 11px"
     ></description>
   </groupbox>
+  <groupbox>
+    <label><html:h2 data-l10n-id="pref-chat"></html:h2></label>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-chat-lang"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <menulist
+        native="true"
+        preference="extensions.zotero.__addonRef__.CHAT_LANG"
+      >
+        <menupopup>
+          <menuitem value="ko" label="한국어 (Korean)"></menuitem>
+          <menuitem value="en" label="English"></menuitem>
+        </menupopup>
+      </menulist>
+    </hbox>
+    <description
+      data-l10n-id="pref-chat-lang-hint"
+      style="opacity: 0.7; font-size: 11px"
+    ></description>
+  </groupbox>
 </vbox>

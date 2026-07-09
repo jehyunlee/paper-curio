@@ -1,7 +1,7 @@
 # Right-click menu
 itemmenu-review = paper-curation Review generation
 itemmenu-comparison = paper-curation Comparison
-itemmenu-chat = paper-curation AI Chat (PDF Q&A)
+itemmenu-chat = paper-curation AI Chat (single PDF)
 itemmenu-open-review = Open paper-curation Review HTML
 
 # Toasts — comparison
@@ -78,3 +78,4 @@ chat-export-empty = Nothing to export yet — ask something first.
 chat-export-done = Saved: { $path }
 chat-export-obsidian-done = Saved to Obsidian vault: { $path }
 chat-export-fail = Export failed: { $err }
+chat-lang-title = Answer language — click to toggle EN / KO

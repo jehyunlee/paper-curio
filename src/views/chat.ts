@@ -17,6 +17,7 @@ import { resolveOutputTarget } from "../core/pc-discovery"
 import { findExisting } from "../core/papers-index"
 import { loadRelatedForSlug, RelatedPaper } from "../core/related"
 import { joinPath, writeText, makeDir } from "../utils/fs"
+import { getPrefStr, setPref } from "../utils/prefs"
 
 const MAX_CTX_CHARS = 120_000
 
@@ -79,6 +80,37 @@ blockquote { border-left:3px solid #e5e7eb; margin:6px 0; padding:2px 12px; colo
 img { max-width:100%; }
 `
 
+type ChatLang = "ko" | "en"
+
+/** 채팅 답변 언어 (pref CHAT_LANG, 기본 ko). 창의 EN/KO 버튼과 환경설정이 공유. */
+function getChatLang(): ChatLang {
+  return getPrefStr("CHAT_LANG") === "en" ? "en" : "ko"
+}
+function setChatLang(l: ChatLang): void {
+  setPref("CHAT_LANG", l)
+}
+/** system 뒤에 덧붙일 출력 언어 지시. */
+function langDirective(l: ChatLang): string {
+  return l === "en"
+    ? "\n\n[Output language] Answer in English. Keep technical terms, model/dataset names, and equations in their original form."
+    : "\n\n[출력 언어] 반드시 한국어로 답하세요. 단, 기술 용어·모델명·데이터셋·수식 등은 원문(영문) 그대로 유지합니다."
+}
+
+/** Comparative Chat 시드 질문 (답변 언어에 맞춰 선택). */
+const COMPARE_SEED: Record<ChatLang, { single: string; multi: string }> = {
+  ko: {
+    single:
+      "이 논문의 독창성, 한계, 학문적 의의를 분석해줘. 이미 연결된 관련 연구(있는 경우)와 비교해 무엇이 진짜 새롭고 무엇이 부족한지, 이 연구가 관련 문헌들 사이에서 어떤 위치에 있는지 구체적 근거와 함께 짚어줘.",
+    multi:
+      "선택한 논문들을 서로 비교하고(공통점·차이점, 그리고 상호 관계: 누가 무엇을 발전/대체/보완하는지), 각 논문에 이미 연결된 관련 연구(있는 경우)와 함께 놓고 독창성, 한계, 학문적 의의를 분석해줘. 핵심 비교는 표로 정리해줘.",
+  },
+  en: {
+    single:
+      "Analyze this paper's originality, limitations, and scholarly significance. Compare it against the already-connected related papers (if any): what is genuinely new, what falls short, and where this work sits within the related literature. Be specific and state the basis.",
+    multi:
+      "Compare the selected papers with each other (commonalities, differences, and how they relate — who extends, replaces, or complements whom), then situate them against each paper's already-connected related papers to analyze originality, limitations, and scholarly significance. Summarize the core comparison as a table.",
+  },
+}
 function escapeHtml(s: string): string {
   return String(s ?? "").replace(/[&<>"']/g, (ch) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] as string,
@@ -180,8 +212,7 @@ function buildSystemText(
   const parts: string[] = [
     "당신은 학술 논문 분석 도우미입니다. 아래에 제공된 논문(들)과 이미 연결된 관련 연구를 근거로 " +
       "정확하고 구체적으로 답하세요. 본문에 없는 내용은 추측임을 명시하고, 가능하면 근거(섹션/그림/수식)를 " +
-      "밝히세요. 답변은 읽기 좋은 마크다운으로, 수식은 LaTeX($…$ 또는 $$…$$)로 표기합니다. " +
-      "사용자가 쓴 언어(한국어면 한국어)로 답합니다.",
+      "밝히세요. 답변은 읽기 좋은 마크다운으로, 수식은 LaTeX($…$ 또는 $$…$$)로 표기합니다.",
   ]
   papers.forEach((p, i) => {
     const tag = multi ? `P${i + 1}` : ""
@@ -255,6 +286,7 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
   let totalIn = 0
   let totalOut = 0
   let totalCost = 0
+  let currentLang: ChatLang = getChatLang()
 
   const dialog = new DialogHelper(1, 1)
 
@@ -276,6 +308,7 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
         classList: ["pc-header"],
         children: [
           { tag: "select", namespace: "html", id: "pc-chat-model", classList: ["pc-select"], children: optionChildren },
+          { tag: "button", namespace: "html", id: "pc-chat-lang", classList: ["pc-exp"], attributes: { title: getString("chat-lang-title") }, properties: { textContent: "KO" } },
           {
             tag: "span",
             namespace: "html",
@@ -445,7 +478,7 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     const streamBubble = appendAssistantStreaming()
     let acc = ""
     try {
-      const res = await chatComplete(provider, model, systemText, messages, (delta) => {
+      const res = await chatComplete(provider, model, systemText + langDirective(currentLang), messages, (delta) => {
         acc += delta
         streamBubble.update(acc)
       })
@@ -652,6 +685,15 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
           stickToBottom =
             _log.scrollHeight - _log.scrollTop - _log.clientHeight < 24
         })
+        const langBtn = d.getElementById("pc-chat-lang") as HTMLButtonElement | null
+        if (langBtn) {
+          langBtn.textContent = currentLang.toUpperCase()
+          langBtn.addEventListener("click", () => {
+            currentLang = currentLang === "ko" ? "en" : "ko"
+            setChatLang(currentLang)
+            langBtn.textContent = currentLang.toUpperCase()
+          })
+        }
         if (opts.greeting) appendBubble("assistant", opts.greeting)
         if (!anyText) appendBubble("error", getString("chat-no-pdf-note"))
         if (opts.seed) void runTurn(opts.seed)
@@ -805,8 +847,8 @@ export async function openComparativeStudy(): Promise<void> {
 
   const seed =
     papers.length > 1
-      ? getString("compare-seed-multi")
-      : getString("compare-seed-single")
+      ? COMPARE_SEED[getChatLang()].multi
+      : COMPARE_SEED[getChatLang()].single
   const titleLabel = getString("compare-title", { args: { n: papers.length } })
   await openChat({ papers, related, seed, titleLabel })
 }

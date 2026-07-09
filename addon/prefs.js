@@ -27,3 +27,6 @@ pref("extensions.zotero.__addonRef__.COLLECTION_TOPIC_MAP", "")
 
 // Python 인터프리터 (paper-curation 원본 함수 호출용 — figure 추출 등). py3.12 + PyMuPDF 필요.
 pref("extensions.zotero.__addonRef__.PYTHON_PATH", "/opt/homebrew/Caskroom/miniconda/base/envs/py312/bin/python")
+
+// Chat 답변 언어 (ko | en). 기본 한국어. 채팅 창의 EN/KO 버튼과 공유.
+pref("extensions.zotero.__addonRef__.CHAT_LANG", "ko")

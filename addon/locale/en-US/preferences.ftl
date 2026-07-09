@@ -21,3 +21,7 @@ pref-compare-image-hint = ON (default): paper comparisons include a PaperBanana 
 pref-overwrite-hint = OFF (default): papers that already have a review are skipped. ON: existing review.md/index.html are overwritten (classification metadata preserved). Reviews created by Paper Curio itself are always regenerated regardless of this setting.
 pref-python-path = Python path
 pref-python-path-hint = Python interpreter used to call paper-curation's original functions (figure extraction etc.). Must be the same py3.12 + PyMuPDF environment as paper-curation. Blank uses the default conda py312.
+
+pref-chat = Chat
+pref-chat-lang = Answer language
+pref-chat-lang-hint = Language the AI answers in, for AI Chat / Comparative Chat. You can also toggle it per-window with the EN/KO button in the chat header.

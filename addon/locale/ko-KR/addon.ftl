@@ -1,7 +1,7 @@
 # 우클릭 메뉴
 itemmenu-review = paper-curation Review 생성
 itemmenu-comparison = paper-curation Comparison
-itemmenu-chat = paper-curation AI 대화 (PDF Q&A)
+itemmenu-chat = paper-curation AI 대화 (single PDF)
 itemmenu-open-review = paper-curation Review HTML 열기
 
 # 토스트 — 비교
@@ -78,3 +78,4 @@ chat-export-empty = 내보낼 내용이 없습니다 — 먼저 질문하세요.
 chat-export-done = 저장됨: { $path }
 chat-export-obsidian-done = Obsidian 볼트에 저장됨: { $path }
 chat-export-fail = 내보내기 실패: { $err }
+chat-lang-title = 답변 언어 — 클릭하여 EN / KO 전환

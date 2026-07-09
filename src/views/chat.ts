@@ -1,6 +1,6 @@
 import { marked } from "marked"
 import katex from "katex"
-import { DialogHelper } from "zotero-plugin-toolkit"
+import { DialogHelper, FilePickerHelper } from "zotero-plugin-toolkit"
 import { config } from "../../package.json"
 import { getString } from "../utils/locale"
 import { getSelectedRegularItems } from "../apis/zotero/item"
@@ -16,6 +16,7 @@ import { menu as log } from "../utils/loggers"
 import { resolveOutputTarget } from "../core/pc-discovery"
 import { findExisting } from "../core/papers-index"
 import { loadRelatedForSlug, RelatedPaper } from "../core/related"
+import { joinPath, writeText, makeDir } from "../utils/fs"
 
 const MAX_CTX_CHARS = 120_000
 
@@ -56,6 +57,26 @@ const CHAT_CSS = `
 .pc-btn-primary:disabled { background:#bfdbfe; cursor:default; }
 .pc-btn-ghost { background:#f3f4f6; color:#667085; }
 .pc-btn-ghost:hover { background:#e5e7eb; color:#111827; }
+.pc-export { display:flex; gap:5px; align-items:center; margin-left:8px; }
+.pc-exp { font-size:11px; padding:4px 8px; border-radius:8px; border:1px solid #e5e7eb; background:#f9fafb; color:#667085; cursor:pointer; font-family:inherit; }
+.pc-exp:hover { background:#eef0f2; color:#111827; }
+`
+
+const EXPORT_HTML_CSS = `
+body { max-width: 860px; margin: 24px auto; padding: 0 18px; font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR",Segoe UI,sans-serif; color:#111827; line-height:1.65; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; }
+.meta { color:#98a2b3; font-size:12px; margin:0 0 6px; }
+.papers { color:#475467; font-size:13px; background:#f8fafc; border:1px solid #eef0f2; border-radius:10px; padding:10px 14px; margin:0 0 18px; }
+.turn { margin: 14px 0; }
+.turn .role { font-weight:600; font-size:12.5px; color:#667085; margin-bottom:4px; }
+.turn.user pre.u { white-space:pre-wrap; background:#eff6ff; border:1px solid #dbeafe; color:#1e3a8a; border-radius:10px; padding:10px 13px; font-family:inherit; font-size:14px; }
+.turn.ai { background:#fff; border:1px solid #eef0f2; border-radius:10px; padding:6px 14px; }
+pre { background:#0f172a; color:#e2e8f0; padding:10px 12px; border-radius:10px; overflow-x:auto; }
+code { background:rgba(148,163,184,.20); padding:1px 5px; border-radius:6px; }
+pre code { background:none; padding:0; }
+table { border-collapse:collapse; margin:8px 0; } th,td { border:1px solid #e5e7eb; padding:5px 9px; }
+blockquote { border-left:3px solid #e5e7eb; margin:6px 0; padding:2px 12px; color:#475467; }
+img { max-width:100%; }
 `
 
 function escapeHtml(s: string): string {
@@ -132,6 +153,7 @@ interface ChatPaper {
   meta: { title: string; authors: string; year: string; doi: string }
   text: string
   pages: number
+  slug?: string
 }
 
 /** 논문 1편의 PDF 텍스트 + 메타 추출 (실패해도 메타로 진행). */
@@ -263,6 +285,16 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
             properties: {
               textContent: getString("chat-cost", { args: { cost: "0.0000", in: "0", out: "0" } }),
             },
+          },
+          {
+            tag: "div",
+            namespace: "html",
+            classList: ["pc-export"],
+            children: [
+              { tag: "button", namespace: "html", id: "pc-exp-md", classList: ["pc-exp"], attributes: { title: getString("chat-export-md") }, properties: { textContent: "MD" } },
+              { tag: "button", namespace: "html", id: "pc-exp-html", classList: ["pc-exp"], attributes: { title: getString("chat-export-html") }, properties: { textContent: "HTML" } },
+              { tag: "button", namespace: "html", id: "pc-exp-obs", classList: ["pc-exp"], attributes: { title: getString("chat-export-obsidian") }, properties: { textContent: "OB" } },
+            ],
           },
         ],
       },
@@ -422,6 +454,149 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     await runTurn(question)
   }
 
+  // ── 내보내기 (.md / .html / Obsidian) ──────────────────────────────
+  function nowStamp(): string {
+    const d = new Date()
+    const p = (n: number) => String(n).padStart(2, "0")
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  }
+  function exportTitle(): string {
+    return opts.papers.length === 1 ? opts.papers[0].meta.title : `${opts.papers.length} papers`
+  }
+  function safeBaseName(): string {
+    const base =
+      (opts.papers[0]?.meta.title || "chat")
+        .replace(/[^\w가-힣 -]/g, "")
+        .trim()
+        .replace(/\s+/g, "-")
+        .slice(0, 60) || "chat"
+    const d = new Date()
+    const p = (n: number) => String(n).padStart(2, "0")
+    return `PaperCurio-${base}-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`
+  }
+  function papersMdList(wiki: boolean): string {
+    return opts.papers
+      .map((p, i) => {
+        const tag = opts.papers.length > 1 ? `[P${i + 1}] ` : ""
+        if (wiki && p.slug) return `- ${tag}[[papers/${p.slug}/review]] — ${p.meta.title}`
+        const bits = [p.meta.authors, p.meta.year].filter(Boolean).join(", ")
+        const doi = p.meta.doi ? ` · DOI: ${p.meta.doi}` : ""
+        return `- ${tag}${p.meta.title}${bits ? ` — ${bits}` : ""}${doi}`
+      })
+      .join("\n")
+  }
+  function conversationMd(): string {
+    return messages
+      .map((m) => (m.role === "user" ? `### 🧑 User\n\n${m.content}` : `### 🤖 Assistant\n\n${m.content}`))
+      .join("\n\n")
+  }
+  function buildMarkdown(): string {
+    const relBlock = opts.related.length
+      ? "\n\n**Connected related papers**\n" +
+        opts.related.map((r) => `- ${r.relation ? r.relation + ": " : ""}${r.title}`).join("\n")
+      : ""
+    return (
+      `# Paper Curio Chat — ${exportTitle()}\n\n*${nowStamp()}*\n\n` +
+      `**Papers**\n${papersMdList(false)}${relBlock}\n\n---\n\n` +
+      conversationMd() +
+      "\n"
+    )
+  }
+  function buildObsidianMd(): string {
+    const links = opts.papers
+      .filter((p) => p.slug)
+      .map((p) => `  - "[[papers/${p.slug}/review]]"`)
+      .join("\n")
+    const fm =
+      "---\n" +
+      `title: "Paper Curio Chat — ${exportTitle().replace(/"/g, "'")}"\n` +
+      `date: ${new Date().toISOString()}\n` +
+      "type: paper-curio-chat\n" +
+      "tags:\n  - paper-curio\n  - chat\n" +
+      (links ? `papers:\n${links}\n` : "") +
+      "---\n\n"
+    const relBlock = opts.related.length
+      ? "\n\n## Connected related papers\n" +
+        opts.related
+          .map((r) => `- [[papers/${r.slug}/review]] — ${r.relation ? r.relation + ": " : ""}${r.reason || r.title}`)
+          .join("\n")
+      : ""
+    return (
+      fm +
+      `# Paper Curio Chat — ${exportTitle()}\n\n## Papers\n${papersMdList(true)}${relBlock}\n\n## Conversation\n\n` +
+      conversationMd() +
+      "\n"
+    )
+  }
+  function buildHtml(): string {
+    const turns = messages
+      .map((m) => {
+        const role = m.role === "user" ? "🧑 User" : "🤖 Assistant"
+        const cls = m.role === "user" ? "user" : "ai"
+        const body =
+          m.role === "user" ? `<pre class="u">${escapeHtml(m.content)}</pre>` : renderMarkdown(m.content)
+        return `<div class="turn ${cls}"><div class="role">${role}</div>${body}</div>`
+      })
+      .join("\n")
+    const papersHtml = escapeHtml(papersMdList(false)).replace(/\n/g, "<br>")
+    return (
+      '<!DOCTYPE html>\n<html lang="ko"><head><meta charset="utf-8">\n' +
+      '<meta name="viewport" content="width=device-width,initial-scale=1">\n' +
+      `<title>${escapeHtml("Paper Curio Chat — " + exportTitle())}</title>\n` +
+      '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">\n' +
+      `<style>${EXPORT_HTML_CSS}</style></head><body>\n` +
+      `<h1>Paper Curio Chat — ${escapeHtml(exportTitle())}</h1>\n` +
+      `<p class="meta">${escapeHtml(nowStamp())}</p>\n` +
+      `<div class="papers">${papersHtml}</div>\n` +
+      `<div class="conv">\n${turns}\n</div>\n</body></html>\n`
+    )
+  }
+  async function exportFile(kind: "md" | "html"): Promise<void> {
+    if (!messages.length) {
+      toastLine("fail", getString("chat-export-empty"))
+      return
+    }
+    try {
+      const filters: [string, string][] =
+        kind === "md" ? [["Markdown (*.md)", "*.md"]] : [["HTML (*.html)", "*.html"]]
+      const picked = await new FilePickerHelper(
+        getString("chat-export-save"),
+        "save",
+        filters,
+        `${safeBaseName()}.${kind}`,
+      ).open()
+      if (!picked) return
+      const content = kind === "md" ? buildMarkdown() : buildHtml()
+      await writeText(String(picked), content)
+      toastLine("success", getString("chat-export-done", { args: { path: String(picked) } }))
+    } catch (e: any) {
+      toastLine("fail", getString("chat-export-fail", { args: { err: String(e?.message ?? e) } }))
+      log("chat export 실패", e)
+    }
+  }
+  async function exportObsidian(): Promise<void> {
+    if (!messages.length) {
+      toastLine("fail", getString("chat-export-empty"))
+      return
+    }
+    try {
+      const t = await resolveOutputTarget()
+      const dir = joinPath(t.root, "docs", "PaperCurio Chats")
+      await makeDir(dir)
+      const path = joinPath(dir, `${safeBaseName()}.md`)
+      await writeText(path, buildObsidianMd())
+      toastLine("success", getString("chat-export-obsidian-done", { args: { path } }))
+      try {
+        ;(Zotero as any).launchURL?.(`obsidian://open?path=${encodeURIComponent(path)}`)
+      } catch {
+        /* Obsidian 미설치/미등록 볼트 — 파일은 저장됨 */
+      }
+    } catch (e: any) {
+      toastLine("fail", getString("chat-export-fail", { args: { err: String(e?.message ?? e) } }))
+      log("obsidian export 실패", e)
+    }
+  }
+
   dialog.setDialogData({
     loadCallback: () => {
       try {
@@ -443,6 +618,9 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
             void onSend()
           }
         })
+        ;(d.getElementById("pc-exp-md") as HTMLButtonElement | null)?.addEventListener("click", () => void exportFile("md"))
+        ;(d.getElementById("pc-exp-html") as HTMLButtonElement | null)?.addEventListener("click", () => void exportFile("html"))
+        ;(d.getElementById("pc-exp-obs") as HTMLButtonElement | null)?.addEventListener("click", () => void exportObsidian())
         if (opts.greeting) appendBubble("assistant", opts.greeting)
         if (!anyText) appendBubble("error", getString("chat-no-pdf-note"))
         if (opts.seed) void runTurn(opts.seed)
@@ -488,6 +666,20 @@ export async function openChatForSelection(): Promise<void> {
       progress: Math.round(((i + 1) / targets.length) * 100),
     })
     papers.push(await extractPaper(targets[i]))
+  }
+
+  try {
+    const t = await resolveOutputTarget()
+    for (let i = 0; i < targets.length; i++) {
+      const entry = await findExisting(t.papersDir, {
+        doi: String(targets[i].getField("DOI") || ""),
+        zoteroKey: targets[i].key,
+        title: targets[i].getDisplayTitle(),
+      })
+      if (entry?.slug) papers[i].slug = entry.slug
+    }
+  } catch (e) {
+    log("slug 확인 실패", e)
   }
   const totalChars = papers.reduce((s, p) => s + p.text.length, 0)
   pw.changeLine({
@@ -553,6 +745,7 @@ export async function openComparativeStudy(): Promise<void> {
     }
     slugByItem.push(slug)
     if (slug) selectedSlugs.add(slug)
+    if (slug) papers[i].slug = slug
   }
 
   // 이미 저장된 연결만 로드(생성하지 않음). 선택 논문 자기 자신 제외, slug 기준 dedupe.

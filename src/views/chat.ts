@@ -13,6 +13,9 @@ import {
   ChatProvider,
 } from "../llm/chat"
 import { menu as log } from "../utils/loggers"
+import { resolveOutputTarget } from "../core/pc-discovery"
+import { findExisting } from "../core/papers-index"
+import { loadRelatedForSlug, RelatedPaper } from "../core/related"
 
 const MAX_CTX_CHARS = 120_000
 
@@ -125,30 +128,15 @@ function paperMeta(item: Zotero.Item): { title: string; authors: string; year: s
   return { title, authors, year, doi }
 }
 
-/** 우클릭 → 선택 논문 PDF를 컨텍스트로 멀티턴 AI 대화창을 연다. */
-export async function openChatForSelection(): Promise<void> {
-  const targets = getSelectedRegularItems()
-  if (targets.length === 0) {
-    toastLine("fail", getString("toast-no-items"))
-    return
-  }
-  const models = availableChatModels()
-  if (models.length === 0) {
-    toastLine("fail", getString("toast-no-provider"), 6000)
-    return
-  }
+interface ChatPaper {
+  meta: { title: string; authors: string; year: string; doi: string }
+  text: string
+  pages: number
+}
 
-  const item = targets[0]
+/** 논문 1편의 PDF 텍스트 + 메타 추출 (실패해도 메타로 진행). */
+async function extractPaper(item: Zotero.Item): Promise<ChatPaper> {
   const meta = paperMeta(item)
-
-  const pw = new ztoolkit.ProgressWindow(config.addonName, { closeOnClick: true, closeTime: -1 })
-    .createLine({
-      type: "default",
-      text: getString("toast-chat-extracting", { args: { title: meta.title } }),
-      progress: 30,
-    })
-    .show()
-
   let extracted
   try {
     extracted = await extractText(item)
@@ -156,37 +144,89 @@ export async function openChatForSelection(): Promise<void> {
     log("chat PDF 추출 실패", e)
     extracted = { text: "", source: "none" as const, pages: 0, hasPdf: false }
   }
-  const rawText = extracted.text || ""
-  const truncated = rawText.length > MAX_CTX_CHARS
-  const text = truncated ? rawText.slice(0, MAX_CTX_CHARS) : rawText
+  return { meta, text: extracted.text || "", pages: extracted.pages || 0 }
+}
 
-  pw.changeLine({
-    type: rawText ? "success" : "default",
-    text: rawText
-      ? getString("toast-chat-ready", { args: { chars: text.length, pages: extracted.pages || 0 } })
-      : getString("toast-chat-no-pdf"),
-    progress: 100,
-  })
-  pw.startCloseTimer(3000)
-
-  const metaBlock = [
-    `제목: ${meta.title}`,
-    meta.authors ? `저자: ${meta.authors}` : "",
-    meta.year ? `연도: ${meta.year}` : "",
-    meta.doi ? `DOI: ${meta.doi}` : "",
+/** 논문(들) + 이미 연결된 관련 연구 → system 프롬프트. */
+function buildSystemText(
+  papers: ChatPaper[],
+  related: RelatedPaper[],
+  perPaperChars: number,
+): { systemText: string; anyText: boolean } {
+  const multi = papers.length > 1
+  let anyText = false
+  const parts: string[] = [
+    "당신은 학술 논문 분석 도우미입니다. 아래에 제공된 논문(들)과 이미 연결된 관련 연구를 근거로 " +
+      "정확하고 구체적으로 답하세요. 본문에 없는 내용은 추측임을 명시하고, 가능하면 근거(섹션/그림/수식)를 " +
+      "밝히세요. 답변은 읽기 좋은 마크다운으로, 수식은 LaTeX($…$ 또는 $$…$$)로 표기합니다. " +
+      "사용자가 쓴 언어(한국어면 한국어)로 답합니다.",
   ]
-    .filter(Boolean)
-    .join("\n")
+  papers.forEach((p, i) => {
+    const tag = multi ? `P${i + 1}` : ""
+    const metaBlock = [
+      `제목: ${p.meta.title}`,
+      p.meta.authors ? `저자: ${p.meta.authors}` : "",
+      p.meta.year ? `연도: ${p.meta.year}` : "",
+      p.meta.doi ? `DOI: ${p.meta.doi}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n")
+    const head = multi
+      ? `=== 분석 대상 논문 ${tag} (${i + 1}/${papers.length}) ===`
+      : "=== 논문 메타 ==="
+    parts.push(`${head}\n${metaBlock}`)
+    if (p.text) {
+      anyText = true
+      const cut = p.text.length > perPaperChars
+      const body = cut ? p.text.slice(0, perPaperChars) : p.text
+      parts.push(
+        `--- ${multi ? tag + " " : ""}전문${cut ? " (분량 초과로 일부 생략)" : ""} ---\n${body}`,
+      )
+    } else {
+      parts.push(
+        `--- ${multi ? tag + " " : ""}전문 ---\n(PDF 텍스트를 추출하지 못했습니다.)`,
+      )
+    }
+  })
+  if (related.length) {
+    const rel = related
+      .map((r, i) => {
+        const relLabel = r.relation ? ` · 관계: ${r.relation}` : ""
+        const why = r.reason ? `\n연결 이유: ${r.reason}` : ""
+        const sum = r.summary ? `\n요약: ${r.summary}` : ""
+        return `[R${i + 1}] ${r.title}${relLabel}${why}${sum}`
+      })
+      .join("\n\n")
+    parts.push(
+      "=== 이미 연결된 관련 연구 (connected papers) ===\n" +
+        "아래는 위 논문(들)에 이미 연결돼 있는 문헌들의 요약이다. 비교 근거로 사용하라.\n\n" +
+        rel,
+    )
+  }
+  return { systemText: parts.join("\n\n"), anyText }
+}
 
-  const systemText =
-    "당신은 학술 논문 분석 도우미입니다. 아래 논문을 근거로 사용자 질문에 정확하고 구체적으로 답하세요. " +
-    "본문에 없는 내용은 추측임을 명시하고, 가능하면 어느 부분(섹션/그림/수식)에 근거했는지 밝히세요. " +
-    "답변은 읽기 좋게 마크다운으로 작성하고, 수식은 LaTeX($…$ 또는 $$…$$)로 표기하세요. " +
-    "사용자가 쓴 언어(한국어면 한국어)로 답합니다.\n\n" +
-    `=== 논문 메타 ===\n${metaBlock}\n\n` +
-    (text
-      ? `=== 논문 전문${truncated ? " (분량 초과로 일부 생략) " : ""} ===\n${text}`
-      : "=== 논문 전문 ===\n(PDF 텍스트를 추출하지 못했습니다. 사용자가 제공하는 정보로 답하세요.)")
+interface OpenChatOptions {
+  papers: ChatPaper[]
+  related: RelatedPaper[]
+  seed?: string
+  titleLabel: string
+  greeting?: string
+}
+
+/** 공용 채팅 다이얼로그. seed가 있으면 열자마자 그 질문을 스트리밍으로 실행한다. */
+async function openChat(opts: OpenChatOptions): Promise<void> {
+  const models = availableChatModels()
+  const primaryBudget = opts.related.length ? 78_000 : MAX_CTX_CHARS
+  const perPaper = Math.max(
+    8_000,
+    Math.floor(primaryBudget / Math.max(1, opts.papers.length)),
+  )
+  const { systemText, anyText } = buildSystemText(
+    opts.papers,
+    opts.related,
+    perPaper,
+  )
 
   const messages: ChatMsg[] = []
   let busy = false
@@ -306,10 +346,6 @@ export async function openChatForSelection(): Promise<void> {
     logEl.scrollTop = logEl.scrollHeight
   }
 
-  /**
-   * 스트리밍 답변용 빈 assistant 말풍선. 조각이 도착할 때마다 raw 텍스트로 live
-   * 갱신하고(빠름), 완료 시 마크다운/수식으로 최종 렌더한다.
-   */
   function appendAssistantStreaming() {
     const logEl = doc().getElementById("pc-chat-log") as HTMLElement | null
     const bubble = dialog.createElement(doc(), "div", {
@@ -340,16 +376,13 @@ export async function openChatForSelection(): Promise<void> {
     }
   }
 
-  async function onSend(): Promise<void> {
+  /** 질문 1턴 실행 (스트리밍). 사용자 말풍선 + 스트리밍 답변 + 비용 갱신. */
+  async function runTurn(question: string): Promise<void> {
     if (busy) return
     const sel = doc().getElementById("pc-chat-model") as HTMLSelectElement | null
-    const input = doc().getElementById("pc-chat-input") as HTMLTextAreaElement | null
-    if (!sel || !input) return
-    const question = (input.value || "").trim()
-    if (!question) return
+    if (!sel) return
     const [provider, model] = sel.value.split("|") as [ChatProvider, string]
 
-    input.value = ""
     appendBubble("user", question)
     messages.push({ role: "user", content: question })
     setBusy(true)
@@ -364,7 +397,6 @@ export async function openChatForSelection(): Promise<void> {
       messages.push({ role: "assistant", content: answer })
       streamBubble.finalize(answer)
       const u = res.usage
-      // 표시용 input은 캐시 토큰까지 합산(실제 처리량), 비용은 캐시 할인 반영.
       totalIn += u.input + (u.cacheWrite || 0) + (u.cacheRead || 0)
       totalOut += u.output
       totalCost += estimateCost(model, u.input, u.output, u.cacheWrite || 0, u.cacheRead || 0)
@@ -376,15 +408,24 @@ export async function openChatForSelection(): Promise<void> {
       log("chat 호출 실패", e)
     } finally {
       setBusy(false)
-      input.focus()
+      ;(doc().getElementById("pc-chat-input") as HTMLTextAreaElement | null)?.focus()
     }
+  }
+
+  async function onSend(): Promise<void> {
+    if (busy) return
+    const input = doc().getElementById("pc-chat-input") as HTMLTextAreaElement | null
+    if (!input) return
+    const question = (input.value || "").trim()
+    if (!question) return
+    input.value = ""
+    await runTurn(question)
   }
 
   dialog.setDialogData({
     loadCallback: () => {
       try {
         const d = doc()
-        // KaTeX 글리프 스타일 (chrome 번들)
         const link = dialog.createElement(d, "link", {
           namespace: "html",
           attributes: {
@@ -402,9 +443,10 @@ export async function openChatForSelection(): Promise<void> {
             void onSend()
           }
         })
-        appendBubble("assistant", getString("chat-greeting", { args: { title: meta.title } }))
-        if (!rawText) appendBubble("error", getString("chat-no-pdf-note"))
-        input?.focus()
+        if (opts.greeting) appendBubble("assistant", opts.greeting)
+        if (!anyText) appendBubble("error", getString("chat-no-pdf-note"))
+        if (opts.seed) void runTurn(opts.seed)
+        else input?.focus()
       } catch (e) {
         log("chat loadCallback 실패", e)
       }
@@ -414,10 +456,133 @@ export async function openChatForSelection(): Promise<void> {
   const mw: any = Zotero.getMainWindow()
   const availH = Number(mw?.screen?.availHeight) || 900
   const availW = Number(mw?.screen?.availWidth) || 1200
-  dialog.open(getString("chat-title", { args: { title: meta.title } }), {
+  dialog.open(opts.titleLabel, {
     width: Math.min(1000, Math.max(700, Math.round(availW * 0.55))),
     height: Math.max(360, Math.round(availH / 2)),
     centerscreen: true,
     resizable: true,
   })
+}
+
+/** 우클릭 → 선택 논문(들)을 컨텍스트로 멀티턴 AI 대화창을 연다. */
+export async function openChatForSelection(): Promise<void> {
+  const targets = getSelectedRegularItems()
+  if (targets.length === 0) {
+    toastLine("fail", getString("toast-no-items"))
+    return
+  }
+  if (availableChatModels().length === 0) {
+    toastLine("fail", getString("toast-no-provider"), 6000)
+    return
+  }
+
+  const pw = new ztoolkit.ProgressWindow(config.addonName, { closeOnClick: true, closeTime: -1 })
+    .createLine({ type: "default", text: getString("toast-chat-extracting", { args: { title: targets[0].getDisplayTitle() } }), progress: 10 })
+    .show()
+
+  const papers: ChatPaper[] = []
+  for (let i = 0; i < targets.length; i++) {
+    pw.changeLine({
+      type: "default",
+      text: getString("toast-chat-extracting", { args: { title: targets[i].getDisplayTitle() } }),
+      progress: Math.round(((i + 1) / targets.length) * 100),
+    })
+    papers.push(await extractPaper(targets[i]))
+  }
+  const totalChars = papers.reduce((s, p) => s + p.text.length, 0)
+  pw.changeLine({
+    type: totalChars ? "success" : "default",
+    text: totalChars
+      ? papers.length === 1
+        ? getString("toast-chat-ready", { args: { chars: totalChars, pages: papers[0].pages } })
+        : getString("toast-chat-ready-multi", { args: { n: papers.length, chars: totalChars } })
+      : getString("toast-chat-no-pdf"),
+    progress: 100,
+  })
+  pw.startCloseTimer(3000)
+
+  const titleLabel =
+    papers.length === 1
+      ? getString("chat-title", { args: { title: papers[0].meta.title } })
+      : getString("chat-title-multi", { args: { n: papers.length } })
+  const greeting =
+    papers.length === 1
+      ? getString("chat-greeting", { args: { title: papers[0].meta.title } })
+      : getString("chat-greeting-multi", { args: { n: papers.length } })
+  await openChat({ papers, related: [], titleLabel, greeting })
+}
+
+/** 우클릭 → 선택 논문(들) + 이미 연결된 관련 연구로 비교 분석을 AI Chat으로 연다. */
+export async function openComparativeStudy(): Promise<void> {
+  const targets = getSelectedRegularItems()
+  if (targets.length === 0) {
+    toastLine("fail", getString("toast-no-items"))
+    return
+  }
+  if (availableChatModels().length === 0) {
+    toastLine("fail", getString("toast-no-provider"), 6000)
+    return
+  }
+
+  const pw = new ztoolkit.ProgressWindow(config.addonName, { closeOnClick: true, closeTime: -1 })
+    .createLine({ type: "default", text: getString("toast-chat-extracting", { args: { title: targets[0].getDisplayTitle() } }), progress: 5 })
+    .show()
+
+  const target = await resolveOutputTarget()
+  const papers: ChatPaper[] = []
+  const slugByItem: (string | null)[] = []
+  const selectedSlugs = new Set<string>()
+  for (let i = 0; i < targets.length; i++) {
+    const it = targets[i]
+    pw.changeLine({
+      type: "default",
+      text: getString("toast-chat-extracting", { args: { title: it.getDisplayTitle() } }),
+      progress: Math.round(((i + 1) / targets.length) * 70),
+    })
+    papers.push(await extractPaper(it))
+    let slug: string | null = null
+    try {
+      const entry = await findExisting(target.papersDir, {
+        doi: String(it.getField("DOI") || ""),
+        zoteroKey: it.key,
+        title: it.getDisplayTitle(),
+      })
+      slug = entry?.slug || null
+    } catch (e) {
+      log("findExisting 실패", e)
+    }
+    slugByItem.push(slug)
+    if (slug) selectedSlugs.add(slug)
+  }
+
+  // 이미 저장된 연결만 로드(생성하지 않음). 선택 논문 자기 자신 제외, slug 기준 dedupe.
+  pw.changeLine({ type: "default", text: getString("toast-compare-gather-related"), progress: 82 })
+  const relatedMap = new Map<string, RelatedPaper>()
+  const perPaperCap = targets.length > 1 ? 6 : 12
+  for (const slug of slugByItem) {
+    if (!slug) continue
+    try {
+      const rels = await loadRelatedForSlug(target.papersDir, slug, { maxPapers: perPaperCap })
+      for (const r of rels) {
+        if (selectedSlugs.has(r.slug) || relatedMap.has(r.slug)) continue
+        relatedMap.set(r.slug, r)
+      }
+    } catch (e) {
+      log("related 로드 실패", e)
+    }
+  }
+  const related = [...relatedMap.values()]
+  pw.changeLine({
+    type: "success",
+    text: getString("toast-compare-related-found", { args: { n: related.length } }),
+    progress: 100,
+  })
+  pw.startCloseTimer(3500)
+
+  const seed =
+    papers.length > 1
+      ? getString("compare-seed-multi")
+      : getString("compare-seed-single")
+  const titleLabel = getString("compare-title", { args: { n: papers.length } })
+  await openChat({ papers, related, seed, titleLabel })
 }

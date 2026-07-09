@@ -57,3 +57,14 @@ chat-greeting = Ask anything about "{ $title }" — answers use the full PDF as 
 chat-no-pdf-note = Could not extract PDF text — answering from metadata only.
 chat-cost = Paid API · est. ${ $cost } · in { $in } / out { $out } tok
 chat-cost-title = Rough estimate from list prices; actual billing may differ.
+
+# Comparative study (already-connected related papers) + multi-paper chat
+itemmenu-comparative-study = paper-curation Comparative study (related papers)
+chat-title-multi = AI Chat — { $n } papers
+chat-greeting-multi = Ask anything about the { $n } selected papers — answers use their full PDFs as context. (Paid API calls; an estimated running cost is shown above.)
+toast-chat-ready-multi = { $n } papers ready — { $chars } chars total
+toast-compare-gather-related = Loading already-connected related papers…
+toast-compare-related-found = { $n } connected related paper(s) loaded
+compare-title = Comparative Study — { $n } paper(s)
+compare-seed-single = Analyze this paper's originality, limitations, and scholarly significance. Compare it against the already-connected related papers (if any): what is genuinely new, what falls short, and where this work sits within the related literature. Be specific and state the basis.
+compare-seed-multi = Compare the selected papers with each other (commonalities, differences, and how they relate — who extends, replaces, or complements whom), then situate them against each paper's already-connected related papers to analyze originality, limitations, and scholarly significance. Summarize the core comparison as a table.

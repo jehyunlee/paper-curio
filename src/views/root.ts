@@ -9,13 +9,14 @@ import { deployViaBridge, compareViaBridge } from "../extract/pybridge"
 import { topicForCollection } from "../core/categorize"
 import { findExisting } from "../core/papers-index"
 import { joinPath, pathExists } from "../utils/fs"
-import { openChatForSelection } from "./chat"
+import { openChatForSelection, openComparativeStudy } from "./chat"
 
 const MENU_ID = `${config.addonRef}-itemmenu-review`
 const SEP_ID = `${config.addonRef}-itemmenu-sep`
 const COMPARE_ID = `${config.addonRef}-itemmenu-compare`
 const OPEN_REVIEW_ID = `${config.addonRef}-itemmenu-open-review`
 const CHAT_ID = `${config.addonRef}-itemmenu-chat`
+const COMPARE_STUDY_ID = `${config.addonRef}-itemmenu-compare-study`
 const DEPLOY_ID = `${config.addonRef}-collectionmenu-deploy`
 const COMPARE_MAX = 6
 
@@ -51,6 +52,15 @@ export function registerItemMenu(): void {
   })
   ztoolkit.Menu.register("item", {
     tag: "menuitem",
+    id: COMPARE_STUDY_ID,
+    label: getString("itemmenu-comparative-study"),
+    icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
+    commandListener: () => {
+      void openComparativeStudy()
+    },
+  })
+  ztoolkit.Menu.register("item", {
+    tag: "menuitem",
     id: COMPARE_ID,
     label: getString("itemmenu-comparison"),
     icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
@@ -66,6 +76,7 @@ export function unregisterItemMenu(): void {
     ztoolkit.Menu.unregister(MENU_ID)
     ztoolkit.Menu.unregister(OPEN_REVIEW_ID)
     ztoolkit.Menu.unregister(CHAT_ID)
+    ztoolkit.Menu.unregister(COMPARE_STUDY_ID)
     ztoolkit.Menu.unregister(COMPARE_ID)
     ztoolkit.Menu.unregister(SEP_ID)
   } catch {

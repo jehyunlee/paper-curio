@@ -57,3 +57,14 @@ chat-greeting = 논문 "{ $title }"에 대해 무엇이든 물어보세요 — P
 chat-no-pdf-note = PDF 텍스트를 추출하지 못했습니다 — 메타데이터만으로 답합니다.
 chat-cost = 유료 API · 예상 ${ $cost } · in { $in } / out { $out } tok
 chat-cost-title = 모델 공시 단가 기반 추정치입니다. 실제 청구액과 다를 수 있습니다.
+
+# 비교 연구(이미 연결된 관련 연구) + 다중 논문 대화
+itemmenu-comparative-study = paper-curation 비교 연구 (연결된 관련 연구)
+chat-title-multi = AI 대화 — 논문 { $n }편
+chat-greeting-multi = 선택한 { $n }편의 논문에 대해 무엇이든 물어보세요 — 각 PDF 전문을 컨텍스트로 답합니다. (유료 API 호출이며, 상단에 예상 비용이 누적 표시됩니다.)
+toast-chat-ready-multi = 논문 { $n }편 준비 완료 — 총 { $chars }자
+toast-compare-gather-related = 이미 연결된 관련 연구를 불러오는 중…
+toast-compare-related-found = 연결된 관련 연구 { $n }편 로드
+compare-title = 비교 연구 — 논문 { $n }편
+compare-seed-single = 이 논문의 독창성, 한계, 학문적 의의를 분석해줘. 이미 연결된 관련 연구(있는 경우)와 비교해 무엇이 진짜 새롭고 무엇이 부족한지, 이 연구가 관련 문헌들 사이에서 어떤 위치에 있는지 구체적 근거와 함께 짚어줘.
+compare-seed-multi = 선택한 논문들을 서로 비교하고(공통점·차이점, 그리고 상호 관계: 누가 무엇을 발전/대체/보완하는지), 각 논문에 이미 연결된 관련 연구(있는 경우)와 함께 놓고 독창성, 한계, 학문적 의의를 분석해줘. 핵심 비교는 표로 정리해줘.

@@ -343,6 +343,20 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     return dialog.window.document
   }
 
+  let stickToBottom = true
+
+  /** stickToBottom이 true일 때만 맨 아래로. 사용자가 위로 올리면 자동 스크롤 정지. */
+  function pinnedScroll() {
+    const logEl = doc().getElementById("pc-chat-log") as HTMLElement | null
+    if (logEl && stickToBottom) logEl.scrollTop = logEl.scrollHeight
+  }
+  function forceScrollBottom() {
+    const logEl = doc().getElementById("pc-chat-log") as HTMLElement | null
+    if (logEl) {
+      stickToBottom = true
+      logEl.scrollTop = logEl.scrollHeight
+    }
+  }
   function updateCost() {
     const el = doc().getElementById("pc-chat-cost")
     if (el)
@@ -375,7 +389,7 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     if (role === "assistant") bubble.innerHTML = renderMarkdown(content)
     else bubble.textContent = content
     logEl.appendChild(bubble)
-    logEl.scrollTop = logEl.scrollHeight
+    pinnedScroll()
   }
 
   function appendAssistantStreaming() {
@@ -384,25 +398,34 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
       namespace: "html",
       classList: ["pc-msg", "ai"],
     }) as HTMLElement
-    bubble.style.whiteSpace = "pre-wrap"
-    if (logEl) {
-      logEl.appendChild(bubble)
-      logEl.scrollTop = logEl.scrollHeight
-    }
-    const scroll = () => {
-      if (logEl) logEl.scrollTop = logEl.scrollHeight
+    if (logEl) logEl.appendChild(bubble)
+    pinnedScroll()
+    const win: any = dialog.window
+    let latest = ""
+    let timer: any = null
+    const flush = () => {
+      timer = null
+      // 스트리밍 중 (거의) 실시간 마크다운/수식 렌더. 미완성 구문($…, ```)은
+      // 다음 조각이 오면 자동 보정된다.
+      bubble.innerHTML = renderMarkdown(latest)
+      pinnedScroll()
     }
     return {
       update(acc: string) {
-        bubble.textContent = acc
-        scroll()
+        latest = acc
+        if (timer == null) timer = win.setTimeout(flush, 80) // ~80ms throttle
       },
       finalize(md: string) {
-        bubble.style.whiteSpace = ""
+        if (timer != null) {
+          win.clearTimeout(timer)
+          timer = null
+        }
+        latest = md
         bubble.innerHTML = renderMarkdown(md)
-        scroll()
+        pinnedScroll()
       },
       remove() {
+        if (timer != null) win.clearTimeout(timer)
         bubble.remove()
       },
     }
@@ -416,6 +439,7 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     const [provider, model] = sel.value.split("|") as [ChatProvider, string]
 
     appendBubble("user", question)
+    forceScrollBottom()
     messages.push({ role: "user", content: question })
     setBusy(true)
     const streamBubble = appendAssistantStreaming()
@@ -621,6 +645,13 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
         ;(d.getElementById("pc-exp-md") as HTMLButtonElement | null)?.addEventListener("click", () => void exportFile("md"))
         ;(d.getElementById("pc-exp-html") as HTMLButtonElement | null)?.addEventListener("click", () => void exportFile("html"))
         ;(d.getElementById("pc-exp-obs") as HTMLButtonElement | null)?.addEventListener("click", () => void exportObsidian())
+        const _log = d.getElementById("pc-chat-log") as HTMLElement | null
+        _log?.addEventListener("scroll", () => {
+          if (!_log) return
+          // 맨 아래 근처(24px 이내)면 자동 스크롤 유지, 위로 올리면 정지.
+          stickToBottom =
+            _log.scrollHeight - _log.scrollTop - _log.clientHeight < 24
+        })
         if (opts.greeting) appendBubble("assistant", opts.greeting)
         if (!anyText) appendBubble("error", getString("chat-no-pdf-note"))
         if (opts.seed) void runTurn(opts.seed)

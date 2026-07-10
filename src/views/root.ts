@@ -68,17 +68,57 @@ export function registerItemMenu(): void {
       void onCompareCommand()
     },
   })
-  // 메뉴 tooltip — MenuitemOptions에 없어 등록 직후 속성으로 부여.
-  try {
-    const mdoc = Zotero.getMainWindow()?.document
-    mdoc?.getElementById(CHAT_ID)?.setAttribute("tooltiptext", getString("itemmenu-chat-tip"))
-    mdoc
-      ?.getElementById(COMPARE_STUDY_ID)
-      ?.setAttribute("tooltiptext", getString("itemmenu-comparative-study-tip"))
-  } catch {
-    /* ignore */
-  }
+  // 메뉴 hover 말풍선 — XUL은 menupopup 내부의 tooltiptext를 표시하지 않는다
+  // (메뉴 위에서는 툴팁 리스너가 억제됨). Firefox 북마크 메뉴처럼 전용
+  // <tooltip> 팝업을 하이라이트 이벤트에 맞춰 직접 연다.
+  attachMenuTip(CHAT_ID, getString("itemmenu-chat-tip"))
+  attachMenuTip(COMPARE_STUDY_ID, getString("itemmenu-comparative-study-tip"))
   log("item menu 등록 완료")
+}
+
+/** menuitem hover(DOMMenuItemActive) 시 전용 tooltip 팝업 표시. */
+function attachMenuTip(id: string, tip: string): void {
+  try {
+    const doc = Zotero.getMainWindow()?.document as Document | undefined
+    const el = doc?.getElementById(id) as any
+    if (!doc || !el) return
+    let tipEl = doc.getElementById("papercurio-menu-tip") as any
+    if (!tipEl) {
+      tipEl = (doc as any).createXULElement("tooltip")
+      tipEl.id = "papercurio-menu-tip"
+      doc.documentElement?.appendChild(tipEl)
+    }
+    const win: any = doc.defaultView
+    let timer: any = null
+    const hide = () => {
+      if (timer) {
+        win.clearTimeout(timer)
+        timer = null
+      }
+      try {
+        tipEl.hidePopup()
+      } catch {
+        /* ignore */
+      }
+    }
+    el.addEventListener("DOMMenuItemActive", (ev: Event) => {
+      if (ev.target !== el) return
+      if (timer) win.clearTimeout(timer)
+      timer = win.setTimeout(() => {
+        try {
+          tipEl.setAttribute("label", tip)
+          tipEl.openPopup(el, "end_before", 6, 0, false, false)
+        } catch {
+          /* ignore */
+        }
+      }, 350)
+    })
+    el.addEventListener("DOMMenuItemInactive", hide)
+    el.addEventListener("command", hide)
+    el.parentElement?.addEventListener("popuphidden", hide)
+  } catch (e) {
+    log("menu tip attach 실패", e)
+  }
 }
 
 export function unregisterItemMenu(): void {
@@ -89,6 +129,7 @@ export function unregisterItemMenu(): void {
     ztoolkit.Menu.unregister(COMPARE_STUDY_ID)
     ztoolkit.Menu.unregister(COMPARE_ID)
     ztoolkit.Menu.unregister(SEP_ID)
+    Zotero.getMainWindow()?.document?.getElementById("papercurio-menu-tip")?.remove()
   } catch {
     /* ignore */
   }

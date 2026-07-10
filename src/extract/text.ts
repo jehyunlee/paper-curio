@@ -1,5 +1,13 @@
-import { openPdf } from "./pdfjs"
+import { openPdf, pdfFilePath } from "./pdfjs"
 import { getAttachmentFulltext } from "../apis/zotero/attachment"
+import {
+  joinPath,
+  makeDir,
+  profileDataDir,
+  readJson,
+  statFile,
+  writeJson,
+} from "../utils/fs"
 import { fs as log } from "../utils/loggers"
 
 export interface ExtractedText {
@@ -64,4 +72,55 @@ export async function extractText(item: Zotero.Item): Promise<ExtractedText> {
 /** text.md 파일 내용 (현재는 평문 그대로; 헤더 없이 paper-curation text.md와 동일 평문). */
 export function buildTextMd(text: string): string {
   return (text || "").trim() + "\n"
+}
+
+/**
+ * extractText + 로컬 캐시. PDF(mtime+size) 서명이 같으면 프로파일 캐시에서 즉시
+ * 반환 — 채팅 재오픈 시 pdf.js 전체 파싱 지연 제거 (light 모드 체감속도 핵심).
+ */
+export async function extractTextCached(
+  item: Zotero.Item,
+): Promise<ExtractedText> {
+  const key = (item as any).key || String(item.id)
+  const dir = profileDataDir("textcache")
+  const cachePath = joinPath(dir, `${key}.json`)
+
+  let sig = "nopdf"
+  try {
+    const p = await pdfFilePath(item)
+    if (p) {
+      const st = await statFile(p)
+      if (st) sig = `${st.mtime}:${st.size}`
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const hit = await readJson<{
+    sig?: string
+    text?: string
+    source?: string
+    pages?: number
+    hasPdf?: boolean
+  } | null>(cachePath, null)
+  if (hit && hit.sig === sig && (hit.text || "").length > 50) {
+    log(`text 캐시 적중: ${key} (${(hit.text as string).length}자)`)
+    return {
+      text: hit.text as string,
+      source: (hit.source as ExtractedText["source"]) || "pdfjs",
+      pages: hit.pages || 0,
+      hasPdf: hit.hasPdf ?? true,
+    }
+  }
+
+  const r = await extractText(item)
+  if (r.text) {
+    try {
+      await makeDir(dir)
+      await writeJson(cachePath, { sig, ...r })
+    } catch (e) {
+      log("text 캐시 저장 실패", e)
+    }
+  }
+  return r
 }

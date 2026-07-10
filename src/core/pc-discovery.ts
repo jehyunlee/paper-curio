@@ -93,3 +93,15 @@ export async function resolveOutputTarget(): Promise<OutputTarget> {
       "paper-curation 경로 또는 fallback 출력 경로를 지정하세요.",
   )
 }
+
+/**
+ * resolveOutputTarget의 non-throwing 버전. 코퍼스(또는 fallback) 경로가 없으면
+ * null — 경량(light) 모드. 채팅 등 core 기능은 null이어도 동작해야 한다.
+ */
+export async function tryResolveOutputTarget(): Promise<OutputTarget | null> {
+  try {
+    return await resolveOutputTarget()
+  } catch {
+    return null
+  }
+}

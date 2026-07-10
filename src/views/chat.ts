@@ -4,7 +4,7 @@ import { DialogHelper, FilePickerHelper } from "zotero-plugin-toolkit"
 import { config } from "../../package.json"
 import { getString } from "../utils/locale"
 import { getSelectedRegularItems } from "../apis/zotero/item"
-import { extractText } from "../extract/text"
+import { extractTextCached } from "../extract/text"
 import {
   availableChatModels,
   chatComplete,
@@ -13,10 +13,18 @@ import {
   ChatProvider,
 } from "../llm/chat"
 import { menu as log } from "../utils/loggers"
-import { resolveOutputTarget } from "../core/pc-discovery"
+import { tryResolveOutputTarget } from "../core/pc-discovery"
 import { findExisting } from "../core/papers-index"
 import { loadRelatedForSlug, RelatedPaper } from "../core/related"
-import { joinPath, writeText, makeDir } from "../utils/fs"
+import {
+  joinPath,
+  writeText,
+  makeDir,
+  pathExists,
+  readText,
+  listDir,
+  readBinaryBase64,
+} from "../utils/fs"
 import { getPrefStr, setPref } from "../utils/prefs"
 
 const MAX_CTX_CHARS = 120_000
@@ -61,6 +69,7 @@ const CHAT_CSS = `
 .pc-export { display:flex; gap:5px; align-items:center; margin-left:8px; }
 .pc-exp { font-size:11px; padding:4px 8px; border-radius:8px; border:1px solid #e5e7eb; background:#f9fafb; color:#667085; cursor:pointer; font-family:inherit; }
 .pc-exp:hover { background:#eef0f2; color:#111827; }
+.pc-msg img.pc-fig { max-width:100%; border:1px solid #eef0f2; border-radius:10px; margin:6px 0; cursor:zoom-in; display:block; }
 `
 
 const EXPORT_HTML_CSS = `
@@ -181,24 +190,127 @@ function paperMeta(item: Zotero.Item): { title: string; authors: string; year: s
   return { title, authors, year, doi }
 }
 
+interface ChatFig {
+  /** 마커 키 — "fig:3" 또는 다중 논문 "fig:P2:3" */
+  key: string
+  num: number
+  caption: string
+  /** file:// URL (채팅 내 표시용) */
+  url: string
+  path: string
+  /** 볼트 상대 경로 (papers/slug/figures/figN.webp — Obsidian embed용) */
+  rel: string
+}
+
 interface ChatPaper {
   meta: { title: string; authors: string; year: string; doi: string }
   text: string
   pages: number
   slug?: string
+  figs?: ChatFig[]
 }
 
-/** 논문 1편의 PDF 텍스트 + 메타 추출 (실패해도 메타로 진행). */
-async function extractPaper(item: Zotero.Item): Promise<ChatPaper> {
-  const meta = paperMeta(item)
-  let extracted
+/** 본문 텍스트에서 Figure N 캡션 추출 (없으면 "Figure N"). */
+function captionFor(text: string, num: number): string {
+  const m = text.match(
+    new RegExp(
+      `(?:figure|fig\\.?|그림)\\s*${num}\\s*[.:\\-]?\\s*([^\\n]{5,140})`,
+      "i",
+    ),
+  )
+  return m ? `Figure ${num}: ${m[1].trim()}` : `Figure ${num}`
+}
+
+function pathToFileUrl(p: string): string {
   try {
-    extracted = await extractText(item)
-  } catch (e) {
-    log("chat PDF 추출 실패", e)
-    extracted = { text: "", source: "none" as const, pages: 0, hasPdf: false }
+    const u = (Zotero as any).File?.pathToFileURI?.(p)
+    if (u) return u
+  } catch {
+    /* fallthrough */
   }
-  return { meta, text: extracted.text || "", pages: extracted.pages || 0 }
+  return "file://" + encodeURI(p.replace(/\\/g, "/"))
+}
+
+/**
+ * 논문 1편의 채팅 컨텍스트 구성.
+ * enhanced(코퍼스 감지): text.md 우선(이미 추출돼 있어 빠르고, ODL이면 구조가
+ * 더 좋음) + figures 목록(인라인 그림 마커용).
+ * light: 프로파일 캐시된 pdf.js 추출 (재오픈 즉시).
+ */
+async function buildChatPaper(
+  item: Zotero.Item,
+  target: { papersDir: string; root: string } | null,
+  idx: number,
+  multi: boolean,
+): Promise<ChatPaper> {
+  const paper: ChatPaper = { meta: paperMeta(item), text: "", pages: 0 }
+
+  if (target) {
+    try {
+      const entry = await findExisting(target.papersDir, {
+        doi: String(item.getField("DOI") || ""),
+        zoteroKey: item.key,
+        title: item.getDisplayTitle(),
+      })
+      if (entry?.slug) paper.slug = entry.slug
+    } catch (e) {
+      log("findExisting 실패", e)
+    }
+  }
+
+  // 1) 코퍼스 text.md 우선
+  if (target && paper.slug) {
+    try {
+      const tp = joinPath(target.papersDir, paper.slug, "text.md")
+      if (await pathExists(tp)) {
+        const t = (await readText(tp)).trim()
+        if (t.length > 500) paper.text = t
+      }
+    } catch (e) {
+      log("corpus text.md 읽기 실패", e)
+    }
+  }
+  // 2) 없으면 캐시된 PDF 추출
+  if (!paper.text) {
+    try {
+      const ex = await extractTextCached(item)
+      paper.text = ex.text
+      paper.pages = ex.pages
+    } catch (e) {
+      log("chat PDF 추출 실패", e)
+    }
+  }
+
+  // 3) 코퍼스 figures → 인라인 그림 마커 후보
+  if (target && paper.slug) {
+    try {
+      const fdir = joinPath(target.papersDir, paper.slug, "figures")
+      const files = (await listDir(fdir))
+        .filter((f) => /^fig\d+\.(webp|png|jpe?g)$/i.test(f))
+        .sort(
+          (a, b) =>
+            parseInt((a.match(/\d+/) as RegExpMatchArray)[0], 10) -
+            parseInt((b.match(/\d+/) as RegExpMatchArray)[0], 10),
+        )
+      const figs: ChatFig[] = []
+      for (const f of files) {
+        const num = parseInt((f.match(/\d+/) as RegExpMatchArray)[0], 10)
+        const p = joinPath(fdir, f)
+        figs.push({
+          key: multi ? `fig:P${idx + 1}:${num}` : `fig:${num}`,
+          num,
+          caption: captionFor(paper.text, num),
+          url: pathToFileUrl(p),
+          path: p,
+          rel: `papers/${paper.slug}/figures/${f}`,
+        })
+      }
+      if (figs.length) paper.figs = figs
+    } catch (e) {
+      log("corpus figures 읽기 실패", e)
+    }
+  }
+  return paper
 }
 
 /** 논문(들) + 이미 연결된 관련 연구 → system 프롬프트. */
@@ -256,6 +368,15 @@ function buildSystemText(
         rel,
     )
   }
+  const allFigs = papers.flatMap((p) => p.figs || [])
+  if (allFigs.length) {
+    parts.push(
+      "=== 표시 가능한 그림 (마커) ===\n" +
+        "아래 그림 마커를 답변 본문의 적절한 위치에 **단독 줄**로 출력하면 그 자리에 실제 그림이 " +
+        "사용자에게 표시된다. 질문과 직접 관련된 그림만 사용하고 남용하지 말 것. 마커 형식을 그대로 지킬 것.\n\n" +
+        allFigs.map((f) => `[${f.key}] ${f.caption}`).join("\n"),
+    )
+  }
   return { systemText: parts.join("\n\n"), anyText }
 }
 
@@ -287,6 +408,29 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
   let totalOut = 0
   let totalCost = 0
   let currentLang: ChatLang = getChatLang()
+
+  // ── 인라인 그림 (enhanced: 코퍼스 figures 마커 치환) ──
+  const figMap = new Map<string, ChatFig>()
+  for (const p of opts.papers) for (const f of p.figs || []) figMap.set(f.key, f)
+
+  function resolveFigs(md: string): string {
+    if (!figMap.size) return md
+    return md.replace(/\[(fig:(?:P\d+:)?\d+)\]/g, (m, key) => {
+      const f = figMap.get(key)
+      if (!f) return m
+      return `<img class="pc-fig" src="${f.url}" data-fp="${escapeHtml(f.path)}" alt="${escapeHtml(f.caption)}" title="${escapeHtml(f.caption)}">`
+    })
+  }
+
+  function hookFigs(el: HTMLElement) {
+    el.querySelectorAll("img.pc-fig").forEach((img) => {
+      img.addEventListener("load", () => pinnedScroll(), { once: true })
+      img.addEventListener("click", () => {
+        const fp = img.getAttribute("data-fp")
+        if (fp) (Zotero as any).launchFile(fp)
+      })
+    })
+  }
 
   const dialog = new DialogHelper(1, 1)
 
@@ -419,8 +563,10 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
       namespace: "html",
       classList: ["pc-msg", cls],
     }) as HTMLElement
-    if (role === "assistant") bubble.innerHTML = renderMarkdown(content)
-    else bubble.textContent = content
+    if (role === "assistant") {
+      bubble.innerHTML = renderMarkdown(resolveFigs(content))
+      hookFigs(bubble)
+    } else bubble.textContent = content
     logEl.appendChild(bubble)
     pinnedScroll()
   }
@@ -440,7 +586,8 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
       timer = null
       // 스트리밍 중 (거의) 실시간 마크다운/수식 렌더. 미완성 구문($…, ```)은
       // 다음 조각이 오면 자동 보정된다.
-      bubble.innerHTML = renderMarkdown(latest)
+      bubble.innerHTML = renderMarkdown(resolveFigs(latest))
+      hookFigs(bubble)
       pinnedScroll()
     }
     return {
@@ -454,7 +601,8 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
           timer = null
         }
         latest = md
-        bubble.innerHTML = renderMarkdown(md)
+        bubble.innerHTML = renderMarkdown(resolveFigs(md))
+        hookFigs(bubble)
         pinnedScroll()
       },
       remove() {
@@ -542,9 +690,21 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
       })
       .join("\n")
   }
-  function conversationMd(): string {
+  function figsForExport(md: string, mode: "md" | "obsidian"): string {
+    if (!figMap.size) return md
+    return md.replace(/\[(fig:(?:P\d+:)?\d+)\]/g, (m, key) => {
+      const f = figMap.get(key)
+      if (!f) return m
+      return mode === "obsidian" ? `![[${f.rel}]]` : `![${f.caption}](${f.url})`
+    })
+  }
+  function conversationMd(mode: "md" | "obsidian" = "md"): string {
     return messages
-      .map((m) => (m.role === "user" ? `### 🧑 User\n\n${m.content}` : `### 🤖 Assistant\n\n${m.content}`))
+      .map((m) =>
+        m.role === "user"
+          ? `### 🧑 User\n\n${m.content}`
+          : `### 🤖 Assistant\n\n${figsForExport(m.content, mode)}`,
+      )
       .join("\n\n")
   }
   function buildMarkdown(): string {
@@ -581,17 +741,30 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     return (
       fm +
       `# Paper Curio Chat — ${exportTitle()}\n\n## Papers\n${papersMdList(true)}${relBlock}\n\n## Conversation\n\n` +
-      conversationMd() +
+      conversationMd("obsidian") +
       "\n"
     )
   }
-  function buildHtml(): string {
+  async function buildHtml(): Promise<string> {
+    // 그림 → data URI 임베드 (독립 실행 HTML)
+    const dataUri = new Map<string, string>()
+    for (const f of figMap.values()) {
+      const b64 = await readBinaryBase64(f.path)
+      if (!b64) continue
+      const mime = /\.png$/i.test(f.path)
+        ? "image/png"
+        : /\.jpe?g$/i.test(f.path)
+          ? "image/jpeg"
+          : "image/webp"
+      dataUri.set(f.url, `data:${mime};base64,${b64}`)
+    }
     const turns = messages
       .map((m) => {
         const role = m.role === "user" ? "🧑 User" : "🤖 Assistant"
         const cls = m.role === "user" ? "user" : "ai"
-        const body =
-          m.role === "user" ? `<pre class="u">${escapeHtml(m.content)}</pre>` : renderMarkdown(m.content)
+        let body =
+          m.role === "user" ? `<pre class="u">${escapeHtml(m.content)}</pre>` : renderMarkdown(resolveFigs(m.content))
+        for (const [u, dURI] of dataUri) body = body.split(u).join(dURI)
         return `<div class="turn ${cls}"><div class="role">${role}</div>${body}</div>`
       })
       .join("\n")
@@ -623,7 +796,7 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
         `${safeBaseName()}.${kind}`,
       ).open()
       if (!picked) return
-      const content = kind === "md" ? buildMarkdown() : buildHtml()
+      const content = kind === "md" ? buildMarkdown() : await buildHtml()
       await writeText(String(picked), content)
       toastLine("success", getString("chat-export-done", { args: { path: String(picked) } }))
     } catch (e: any) {
@@ -637,7 +810,11 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
       return
     }
     try {
-      const t = await resolveOutputTarget()
+      const t = await tryResolveOutputTarget()
+      if (!t) {
+        toastLine("fail", getString("chat-export-need-pc"), 6000)
+        return
+      }
       const dir = joinPath(t.root, "docs", "PaperCurio Chats")
       await makeDir(dir)
       const path = joinPath(dir, `${safeBaseName()}.md`)
@@ -731,6 +908,7 @@ export async function openChatForSelection(): Promise<void> {
     .createLine({ type: "default", text: getString("toast-chat-extracting", { args: { title: targets[0].getDisplayTitle() } }), progress: 10 })
     .show()
 
+  const target = await tryResolveOutputTarget()
   const papers: ChatPaper[] = []
   for (let i = 0; i < targets.length; i++) {
     pw.changeLine({
@@ -738,21 +916,7 @@ export async function openChatForSelection(): Promise<void> {
       text: getString("toast-chat-extracting", { args: { title: targets[i].getDisplayTitle() } }),
       progress: Math.round(((i + 1) / targets.length) * 100),
     })
-    papers.push(await extractPaper(targets[i]))
-  }
-
-  try {
-    const t = await resolveOutputTarget()
-    for (let i = 0; i < targets.length; i++) {
-      const entry = await findExisting(t.papersDir, {
-        doi: String(targets[i].getField("DOI") || ""),
-        zoteroKey: targets[i].key,
-        title: targets[i].getDisplayTitle(),
-      })
-      if (entry?.slug) papers[i].slug = entry.slug
-    }
-  } catch (e) {
-    log("slug 확인 실패", e)
+    papers.push(await buildChatPaper(targets[i], target, i, targets.length > 1))
   }
   const totalChars = papers.reduce((s, p) => s + p.text.length, 0)
   pw.changeLine({
@@ -793,9 +957,8 @@ export async function openComparativeStudy(): Promise<void> {
     .createLine({ type: "default", text: getString("toast-chat-extracting", { args: { title: targets[0].getDisplayTitle() } }), progress: 5 })
     .show()
 
-  const target = await resolveOutputTarget()
+  const target = await tryResolveOutputTarget()
   const papers: ChatPaper[] = []
-  const slugByItem: (string | null)[] = []
   const selectedSlugs = new Set<string>()
   for (let i = 0; i < targets.length; i++) {
     const it = targets[i]
@@ -804,46 +967,38 @@ export async function openComparativeStudy(): Promise<void> {
       text: getString("toast-chat-extracting", { args: { title: it.getDisplayTitle() } }),
       progress: Math.round(((i + 1) / targets.length) * 70),
     })
-    papers.push(await extractPaper(it))
-    let slug: string | null = null
-    try {
-      const entry = await findExisting(target.papersDir, {
-        doi: String(it.getField("DOI") || ""),
-        zoteroKey: it.key,
-        title: it.getDisplayTitle(),
-      })
-      slug = entry?.slug || null
-    } catch (e) {
-      log("findExisting 실패", e)
-    }
-    slugByItem.push(slug)
-    if (slug) selectedSlugs.add(slug)
-    if (slug) papers[i].slug = slug
+    const paper = await buildChatPaper(it, target, i, targets.length > 1)
+    papers.push(paper)
+    if (paper.slug) selectedSlugs.add(paper.slug)
   }
 
   // 이미 저장된 연결만 로드(생성하지 않음). 선택 논문 자기 자신 제외, slug 기준 dedupe.
-  pw.changeLine({ type: "default", text: getString("toast-compare-gather-related"), progress: 82 })
   const relatedMap = new Map<string, RelatedPaper>()
-  const perPaperCap = targets.length > 1 ? 6 : 12
-  for (const slug of slugByItem) {
-    if (!slug) continue
-    try {
-      const rels = await loadRelatedForSlug(target.papersDir, slug, { maxPapers: perPaperCap })
-      for (const r of rels) {
-        if (selectedSlugs.has(r.slug) || relatedMap.has(r.slug)) continue
-        relatedMap.set(r.slug, r)
+  if (target) {
+    pw.changeLine({ type: "default", text: getString("toast-compare-gather-related"), progress: 82 })
+    const perPaperCap = targets.length > 1 ? 6 : 12
+    for (const p of papers) {
+      if (!p.slug) continue
+      try {
+        const rels = await loadRelatedForSlug(target.papersDir, p.slug, { maxPapers: perPaperCap })
+        for (const r of rels) {
+          if (selectedSlugs.has(r.slug) || relatedMap.has(r.slug)) continue
+          relatedMap.set(r.slug, r)
+        }
+      } catch (e) {
+        log("related 로드 실패", e)
       }
-    } catch (e) {
-      log("related 로드 실패", e)
     }
   }
   const related = [...relatedMap.values()]
   pw.changeLine({
     type: "success",
-    text: getString("toast-compare-related-found", { args: { n: related.length } }),
+    text: target
+      ? getString("toast-compare-related-found", { args: { n: related.length } })
+      : getString("toast-compare-light"),
     progress: 100,
   })
-  pw.startCloseTimer(3500)
+  pw.startCloseTimer(target ? 3500 : 6000)
 
   const seed =
     papers.length > 1

@@ -79,3 +79,10 @@ chat-export-done = Saved: { $path }
 chat-export-obsidian-done = Saved to Obsidian vault: { $path }
 chat-export-fail = Export failed: { $err }
 chat-lang-title = Answer language — click to toggle EN / KO
+
+# Light/Enhanced tiers (paper-curation optional)
+toast-need-pc = This feature needs paper-curation (or a fallback output dir). Set the path in Settings → Paper Curio — AI Chat / Comparative Chat work without it.
+toast-compare-light = Light mode: comparing the selected papers only — connect paper-curation to add related-paper analysis & inline figures.
+chat-export-need-pc = Obsidian export needs a paper-curation (or fallback) path — set it in Settings → Paper Curio.
+pc-status-ok = ✓ paper-curation connected: { $path } — related-paper analysis, review generation, and inline figures are active.
+pc-status-missing = paper-curation not connected — AI Chat / Comparative Chat work as-is. Set a path below to unlock related-paper analysis, review generation, and inline figures.

@@ -79,3 +79,10 @@ chat-export-done = 저장됨: { $path }
 chat-export-obsidian-done = Obsidian 볼트에 저장됨: { $path }
 chat-export-fail = 내보내기 실패: { $err }
 chat-lang-title = 답변 언어 — 클릭하여 EN / KO 전환
+
+# Light/Enhanced 티어 (paper-curation 선택 연동)
+toast-need-pc = 이 기능은 paper-curation(또는 fallback 출력 경로)이 필요합니다. Settings → Paper Curio에서 경로를 지정하세요 — AI Chat / Comparative Chat은 경로 없이도 동작합니다.
+toast-compare-light = 경량 모드: 선택 논문끼리만 비교합니다 — paper-curation을 연동하면 연관논문 분석·그림 표시가 추가됩니다.
+chat-export-need-pc = Obsidian 내보내기는 paper-curation(또는 fallback) 경로가 필요합니다 — Settings → Paper Curio에서 지정하세요.
+pc-status-ok = ✓ paper-curation 연동됨: { $path } — 연관논문 분석·리뷰 생성·그림 표시가 활성화되어 있습니다.
+pc-status-missing = paper-curation 미연동 — AI Chat / Comparative Chat은 그대로 동작합니다. 아래에 경로를 지정하면 연관논문 분석·리뷰 생성·그림 표시가 활성화됩니다.

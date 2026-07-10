@@ -4,7 +4,7 @@ import { getSelectedRegularItems } from "../apis/zotero/item"
 import { processItem } from "../core/pipeline"
 import { hasAnyProvider, configuredProviders } from "../llm"
 import { menu as log } from "../utils/loggers"
-import { resolveOutputTarget } from "../core/pc-discovery"
+import { resolveOutputTarget, tryResolveOutputTarget } from "../core/pc-discovery"
 import { deployViaBridge, compareViaBridge } from "../extract/pybridge"
 import { topicForCollection } from "../core/categorize"
 import { findExisting } from "../core/papers-index"
@@ -113,6 +113,16 @@ function toast(headline: string) {
   })
 }
 
+/** 코퍼스 필요 기능 가드 — paper-curation(또는 fallback) 미설정 시 안내 토스트. */
+async function requirePaperCuration(): Promise<boolean> {
+  if (await tryResolveOutputTarget()) return true
+  toast(config.addonName)
+    .createLine({ type: "fail", text: getString("toast-need-pc"), progress: 100 })
+    .show()
+    .startCloseTimer(8000)
+  return false
+}
+
 async function onReviewCommand(): Promise<void> {
   const targets = getSelectedRegularItems()
 
@@ -141,6 +151,7 @@ async function onReviewCommand(): Promise<void> {
     return
   }
   log("configured providers:", configuredProviders().join(", "))
+  if (!(await requirePaperCuration())) return
 
   // ── 단일 ──
   if (targets.length === 1) {
@@ -271,6 +282,7 @@ async function onReviewCommand(): Promise<void> {
 /** 선택 논문의 이미 생성된 review HTML(index.html)을 브라우저로 연다. 생성은 하지 않음. */
 async function onOpenReviewCommand(): Promise<void> {
   const targets = getSelectedRegularItems()
+  if (!(await requirePaperCuration())) return
   if (targets.length === 0) {
     toast(config.addonName)
       .createLine({ type: "fail", text: getString("toast-no-items"), progress: 100 })
@@ -319,6 +331,7 @@ async function onOpenReviewCommand(): Promise<void> {
 /** 2편 이상 선택 → (리뷰 없는 논문은 자동 생성) → 비교 HTML → 브라우저 오픈. */
 async function onCompareCommand(): Promise<void> {
   const targets = getSelectedRegularItems()
+  if (!(await requirePaperCuration())) return
   if (targets.length < 2 || targets.length > COMPARE_MAX) {
     toast(config.addonName)
       .createLine({
@@ -444,6 +457,7 @@ async function onDeployCommand(): Promise<void> {
   const pane =
     (Zotero as any).getActiveZoteroPane?.() ?? (globalThis as any).ZoteroPane
   const coll = pane?.getSelectedCollection?.()
+  if (!(await requirePaperCuration())) return
   if (!coll) {
     toast(config.addonName)
       .createLine({

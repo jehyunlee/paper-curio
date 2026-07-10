@@ -57,3 +57,38 @@ export async function listDir(p: string): Promise<string[]> {
     return []
   }
 }
+
+/** Zotero 프로파일 내 plugin 데이터 디렉토리 경로. */
+export function profileDataDir(...parts: string[]): string {
+  return PathUtils.join(PathUtils.profileDir, "papercurio", ...parts)
+}
+
+/** 파일 stat (mtime ms + size). 없거나 실패 시 null. */
+export async function statFile(
+  p: string,
+): Promise<{ mtime: number; size: number } | null> {
+  try {
+    const s = await IOUtils.stat(p)
+    return { mtime: Number(s.lastModified) || 0, size: Number(s.size) || 0 }
+  } catch {
+    return null
+  }
+}
+
+/** 바이너리 파일 → base64 (없거나 실패 시 null). 큰 파일도 청크로 안전 변환. */
+export async function readBinaryBase64(p: string): Promise<string | null> {
+  try {
+    const bytes: Uint8Array = await IOUtils.read(p)
+    let bin = ""
+    const CHUNK = 0x8000
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(
+        null,
+        bytes.subarray(i, i + CHUNK) as unknown as number[],
+      )
+    }
+    return btoa(bin)
+  } catch {
+    return null
+  }
+}

@@ -1,7 +1,7 @@
 # Right-click menu
 itemmenu-review = paper-curation Review generation
 itemmenu-comparison = paper-curation Comparison
-itemmenu-chat = paper-curation AI Chat (single PDF)
+itemmenu-chat = paper-curation AI Chat — single (selected only ?⃝)
 itemmenu-open-review = Open paper-curation Review HTML
 
 # Toasts — comparison
@@ -59,7 +59,7 @@ chat-cost = Paid API · est. ${ $cost } · in { $in } / out { $out } tok
 chat-cost-title = Rough estimate from list prices; actual billing may differ.
 
 # Comparative Chat (already-connected related papers) + multi-paper chat
-itemmenu-comparative-study = paper-curation Comparative Chat (related papers)
+itemmenu-comparative-study = paper-curation AI Chat — multiple (with connection ?⃝)
 chat-title-multi = AI Chat — { $n } papers
 chat-greeting-multi = Ask anything about the { $n } selected papers — answers use their full PDFs as context. (Paid API calls; an estimated running cost is shown above.)
 toast-chat-ready-multi = { $n } papers ready — { $chars } chars total
@@ -86,3 +86,5 @@ toast-compare-light = Light mode: comparing the selected papers only — connect
 chat-export-need-pc = Obsidian export needs a paper-curation (or fallback) path — set it in Settings → Paper Curio.
 pc-status-ok = ✓ paper-curation connected: { $path } — related-paper analysis, review generation, and inline figures are active.
 pc-status-missing = paper-curation not connected — AI Chat / Comparative Chat work as-is. Set a path below to unlock related-paper analysis, review generation, and inline figures.
+itemmenu-chat-tip = Chat with the selection only
+itemmenu-comparative-study-tip = Semantic-connected papers are engaged in comparison

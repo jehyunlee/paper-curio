@@ -68,6 +68,16 @@ export function registerItemMenu(): void {
       void onCompareCommand()
     },
   })
+  // 메뉴 tooltip — MenuitemOptions에 없어 등록 직후 속성으로 부여.
+  try {
+    const mdoc = Zotero.getMainWindow()?.document
+    mdoc?.getElementById(CHAT_ID)?.setAttribute("tooltiptext", getString("itemmenu-chat-tip"))
+    mdoc
+      ?.getElementById(COMPARE_STUDY_ID)
+      ?.setAttribute("tooltiptext", getString("itemmenu-comparative-study-tip"))
+  } catch {
+    /* ignore */
+  }
   log("item menu 등록 완료")
 }
 

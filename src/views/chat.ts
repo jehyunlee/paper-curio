@@ -626,18 +626,26 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     const streamBubble = appendAssistantStreaming()
     let acc = ""
     try {
-      const res = await chatComplete(provider, model, systemText + langDirective(currentLang), messages, (delta) => {
-        acc += delta
-        streamBubble.update(acc)
-      })
-      const answer = res.text || acc || getString("chat-empty-reply")
+      // 빈 응답 가드: 유의미한 답이 나올 때까지 내부적으로 최대 3회 재시도.
+      let answer = ""
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        acc = ""
+        const res = await chatComplete(provider, model, systemText + langDirective(currentLang), messages, (delta) => {
+          acc += delta
+          streamBubble.update(acc)
+        })
+        answer = (res.text || acc).trim()
+        const u = res.usage
+        totalIn += u.input + (u.cacheWrite || 0) + (u.cacheRead || 0)
+        totalOut += u.output
+        totalCost += estimateCost(model, u.input, u.output, u.cacheWrite || 0, u.cacheRead || 0)
+        updateCost()
+        if (answer) break
+        log(`빈 응답 — 재시도 ${attempt}/3`)
+      }
+      if (!answer) answer = getString("chat-empty-reply")
       messages.push({ role: "assistant", content: answer })
       streamBubble.finalize(answer)
-      const u = res.usage
-      totalIn += u.input + (u.cacheWrite || 0) + (u.cacheRead || 0)
-      totalOut += u.output
-      totalCost += estimateCost(model, u.input, u.output, u.cacheWrite || 0, u.cacheRead || 0)
-      updateCost()
     } catch (e: any) {
       if (acc) streamBubble.finalize(acc)
       else streamBubble.remove()
@@ -850,6 +858,32 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
           if (ev.key === "Enter" && !ev.shiftKey) {
             ev.preventDefault()
             void onSend()
+          }
+        })
+        // Cmd/Ctrl+C 선택 복사 — chrome 다이얼로그에는 copy command 컨트롤러가
+        // 없어 기본 복사가 동작하지 않는다. 선택 텍스트를 직접 클립보드로.
+        const copyText = (t: string): boolean => {
+          try {
+            ;(Zotero as any).Utilities.Internal.copyTextToClipboard(t)
+            return true
+          } catch {
+            /* fallthrough */
+          }
+          try {
+            new (ztoolkit as any).Clipboard().addText(t, "text/unicode").copy()
+            return true
+          } catch {
+            return false
+          }
+        }
+        d.addEventListener("keydown", (ev: KeyboardEvent) => {
+          if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "c") {
+            const w: any = dialog.window
+            let text = String(w.getSelection?.() ?? "")
+            const ae = d.activeElement as HTMLTextAreaElement | null
+            if (!text && ae && typeof (ae as any).selectionStart === "number")
+              text = (ae.value || "").slice(ae.selectionStart ?? 0, ae.selectionEnd ?? 0)
+            if (text && copyText(text)) ev.preventDefault()
           }
         })
         ;(d.getElementById("pc-exp-md") as HTMLButtonElement | null)?.addEventListener("click", () => void exportFile("md"))

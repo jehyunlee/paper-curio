@@ -1,7 +1,7 @@
 # 우클릭 메뉴
 itemmenu-review = paper-curation Review 생성
 itemmenu-comparison = paper-curation Comparison
-itemmenu-chat = paper-curation AI 대화 (single PDF)
+itemmenu-chat = paper-curation AI Chat — single (selected only ?⃝)
 itemmenu-open-review = paper-curation Review HTML 열기
 
 # 토스트 — 비교
@@ -59,7 +59,7 @@ chat-cost = 유료 API · 예상 ${ $cost } · in { $in } / out { $out } tok
 chat-cost-title = 모델 공시 단가 기반 추정치입니다. 실제 청구액과 다를 수 있습니다.
 
 # Comparative Chat(이미 연결된 관련 연구) + 다중 논문 대화
-itemmenu-comparative-study = paper-curation Comparative Chat (연결된 관련 연구)
+itemmenu-comparative-study = paper-curation AI Chat — multiple (with connection ?⃝)
 chat-title-multi = AI 대화 — 논문 { $n }편
 chat-greeting-multi = 선택한 { $n }편의 논문에 대해 무엇이든 물어보세요 — 각 PDF 전문을 컨텍스트로 답합니다. (유료 API 호출이며, 상단에 예상 비용이 누적 표시됩니다.)
 toast-chat-ready-multi = 논문 { $n }편 준비 완료 — 총 { $chars }자
@@ -86,3 +86,5 @@ toast-compare-light = 경량 모드: 선택 논문끼리만 비교합니다 — 
 chat-export-need-pc = Obsidian 내보내기는 paper-curation(또는 fallback) 경로가 필요합니다 — Settings → Paper Curio에서 지정하세요.
 pc-status-ok = ✓ paper-curation 연동됨: { $path } — 연관논문 분석·리뷰 생성·그림 표시가 활성화되어 있습니다.
 pc-status-missing = paper-curation 미연동 — AI Chat / Comparative Chat은 그대로 동작합니다. 아래에 경로를 지정하면 연관논문 분석·리뷰 생성·그림 표시가 활성화됩니다.
+itemmenu-chat-tip = Chat with the selection only
+itemmenu-comparative-study-tip = Semantic-connected papers are engaged in comparison

@@ -59,7 +59,7 @@ chat-cost = 유료 API · 예상 ${ $cost } · in { $in } / out { $out } tok
 chat-cost-title = 모델 공시 단가 기반 추정치입니다. 실제 청구액과 다를 수 있습니다.
 
 # Comparative Chat(이미 연결된 관련 연구) + 다중 논문 대화
-itemmenu-comparative-study = paper-curation AI Chat — multiple (with connection ?⃝)
+itemmenu-comparative-study = paper-curation AI Chat — multiple (with connections ?⃝)
 chat-title-multi = AI 대화 — 논문 { $n }편
 chat-greeting-multi = 선택한 { $n }편의 논문에 대해 무엇이든 물어보세요 — 각 PDF 전문을 컨텍스트로 답합니다. (유료 API 호출이며, 상단에 예상 비용이 누적 표시됩니다.)
 toast-chat-ready-multi = 논문 { $n }편 준비 완료 — 총 { $chars }자

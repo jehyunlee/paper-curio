@@ -86,8 +86,19 @@ function attachMenuTip(id: string, tip: string): void {
     if (!tipEl) {
       tipEl = (doc as any).createXULElement("tooltip")
       tipEl.id = "papercurio-menu-tip"
+      // 화면 중앙에 띄우므로 마우스가 항목을 벗어날 때까지 유지되게 한다.
+      tipEl.setAttribute("noautohide", "true")
+      // 안내 텍스트는 <description> 자식으로 렌더한다. label 속성은 단행 + OS
+      // 기본 크기라 폰트/줄바꿈/여백을 못 키운다. description은 CSS가 먹는다.
+      const descEl = (doc as any).createXULElement("description")
+      descEl.id = "papercurio-menu-tip-desc"
+      descEl.style.cssText =
+        "font-size: 2em; line-height: 1.5; max-width: 560px; " +
+        "padding: 14px 18px; white-space: normal; margin: 0;"
+      tipEl.appendChild(descEl)
       doc.documentElement?.appendChild(tipEl)
     }
+    const desc = doc.getElementById("papercurio-menu-tip-desc") as any
     const win: any = doc.defaultView
     let timer: any = null
     const hide = () => {
@@ -101,13 +112,45 @@ function attachMenuTip(id: string, tip: string): void {
         /* ignore */
       }
     }
+    // Zotero 창이 놓인 모니터의 정중앙으로 이동. 해상도·모니터 원점과 무관.
+    // (availLeft/availTop이 없으면 0으로 보수 처리 → 주 모니터 기준.)
+    const recenter = () => {
+      try {
+        const s: any = win.screen || {}
+        const sx = Number(s.availLeft) || 0
+        const sy = Number(s.availTop) || 0
+        const sw = Number(s.availWidth) || 1200
+        const sh = Number(s.availHeight) || 800
+        const r = tipEl.getBoundingClientRect?.() || { width: 0, height: 0 }
+        const w = r.width || 400
+        const h = r.height || 160
+        tipEl.moveTo(
+          Math.round(sx + (sw - w) / 2),
+          Math.round(sy + (sh - h) / 2),
+        )
+      } catch {
+        /* ignore */
+      }
+    }
     el.addEventListener("DOMMenuItemActive", (ev: Event) => {
       if (ev.target !== el) return
       if (timer) win.clearTimeout(timer)
       timer = win.setTimeout(() => {
         try {
-          tipEl.setAttribute("label", tip)
-          tipEl.openPopup(el, "end_before", 6, 0, false, false)
+          if (desc) desc.textContent = tip
+          else tipEl.setAttribute("label", tip)
+          const s: any = win.screen || {}
+          const sx = Number(s.availLeft) || 0
+          const sy = Number(s.availTop) || 0
+          const sw = Number(s.availWidth) || 1200
+          const sh = Number(s.availHeight) || 800
+          // 대략 중앙에 먼저 띄운 뒤(크기 미상), 실제 크기를 재서 정확히 재중앙.
+          tipEl.openPopupAtScreen(
+            Math.round(sx + sw / 2 - 280),
+            Math.round(sy + sh / 2 - 90),
+            false,
+          )
+          win.setTimeout(recenter, 0)
         } catch {
           /* ignore */
         }

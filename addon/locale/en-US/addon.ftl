@@ -59,7 +59,7 @@ chat-cost = Paid API · est. ${ $cost } · in { $in } / out { $out } tok
 chat-cost-title = Rough estimate from list prices; actual billing may differ.
 
 # Comparative Chat (already-connected related papers) + multi-paper chat
-itemmenu-comparative-study = paper-curation AI Chat — multiple (with connection ?⃝)
+itemmenu-comparative-study = paper-curation AI Chat — multiple (with connections ?⃝)
 chat-title-multi = AI Chat — { $n } papers
 chat-greeting-multi = Ask anything about the { $n } selected papers — answers use their full PDFs as context. (Paid API calls; an estimated running cost is shown above.)
 toast-chat-ready-multi = { $n } papers ready — { $chars } chars total

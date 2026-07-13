@@ -30,3 +30,9 @@ pref("extensions.zotero.__addonRef__.PYTHON_PATH", "/opt/homebrew/Caskroom/minic
 
 // Chat 답변 언어 (ko | en). 기본 한국어. 채팅 창의 EN/KO 버튼과 공유.
 pref("extensions.zotero.__addonRef__.CHAT_LANG", "ko")
+
+// Chat 답변 최대 출력 토큰. 답변이 이 값에서 잘려도 자동으로 이어받아 완성한다.
+// (과거 4096 하드코딩 탓에 긴 답변이 끊기던 문제 수정.) 실제 요청은 모델별
+// 출력 상한으로 clamp되며(sonnet 64000/opus 32000/그 외 8192), 과금은 실제
+// 생성 토큰 기준이라 값을 높여도 미사용분 비용은 없다. 필요시 더 높여도 안전.
+pref("extensions.zotero.__addonRef__.CHAT_MAX_TOKENS", 32000)

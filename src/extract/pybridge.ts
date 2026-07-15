@@ -32,7 +32,7 @@ function pythonPath(): string {
  *  - classify <slug> <topic> → classify_papers.classify_via_bundle (HDBSCAN approximate_predict)
  *  - compare <slugs_csv> → compare_papers.run_compare (다중 논문 비교 HTML/md 생성)
  *  - ensure_env <managed_dir> → py312(+deps) 인터프리터 확보 (없으면 venv 생성/파이썬 다운로드)
- *  - run_full <topic> → run_full.py --mode curate --source zotero --images all (배포 제외, py312 실행)
+ *  - run_full <topic> → run_full.py --mode curate --source zotero (배포 제외, py312 실행)
  */
 const BRIDGE_PY = `import sys, os, json, subprocess
 
@@ -437,7 +437,6 @@ def main():
         #     히트라 비용 낮음.
         # 각 스크립트를 py312 서브프로세스로 실행. cwd=pc_root.
         topic = sys.argv[3]
-        import subprocess
         pipe = os.path.join(pc_root, "pipeline")
         steps = [
             ("extract_insights.py", ["--topic", topic, "--connections-only"]),
@@ -467,7 +466,6 @@ def main():
         # process env first, then config.json so it works even when Zotero was
         # launched without shell exports.
         topic = sys.argv[3]
-        import subprocess
         sp = os.path.join(pc_root, "pipeline", "prepare_deploy.py")
         if not os.path.exists(sp):
             print(json.dumps({"ok": False, "reason": "no_prepare_deploy"})); return
@@ -532,7 +530,7 @@ def main():
         try:
             cp = subprocess.run(
                 [sys.executable, "-u", sp, "--topic", topic,
-                 "--mode", "curate", "--source", "zotero", "--images", "all"],
+                 "--mode", "curate", "--source", "zotero"],
                 cwd=pc_root, capture_output=True, text=True, timeout=28800, env=env)
             tail = ((cp.stdout or "") + " " + (cp.stderr or ""))[-800:]
             print(json.dumps({"ok": cp.returncode == 0, "code": cp.returncode, "tail": tail})); return

@@ -45,6 +45,9 @@ toast-runfull-running = Running full pipeline: { $topic } … (review · classif
 toast-runfull-done = Full processing complete: { $topic }
 toast-runfull-fail = Full processing failed: { $topic } — { $err }
 toast-runfull-no-python = No Python found — install Python 3.12 or set the Python path in Settings → Paper Curio.
+toast-runfull-register-fail = Failed to register collection: { $name } — { $err }
+runfull-alias-title = Register new collection
+runfull-alias-msg = '{ $name }' is not registered in paper-curation. Enter a topic alias to process it as (lowercase / hyphens recommended):
 
 # Toasts — open review HTML
 toast-open-review-opened = Opened { $opened } review HTML file(s) ({ $missing } missing)

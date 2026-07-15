@@ -67,16 +67,27 @@ export async function topicForCollection(
   name: string,
   pcRoot?: string,
 ): Promise<string> {
+  return (await resolveCollectionTopic(name, pcRoot)).topic
+}
+
+/**
+ * topicForCollection 과 같되, topic 이 config/pref 매핑에서 왔는지(mapped=true)
+ * 아니면 slugify 폴백인지(mapped=false — 즉 아직 등록 안 된 신규 컬렉션) 함께 반환.
+ */
+export async function resolveCollectionTopic(
+  name: string,
+  pcRoot?: string,
+): Promise<{ topic: string; mapped: boolean }> {
   const pref = collectionTopicMap()
   const pc = await pcCollectionTopicMap(pcRoot)
-  return (
+  const found =
     pref[name] ||
     pref[name.toLowerCase()] ||
     pc[name] ||
     pc[name.toLowerCase()] ||
-    pc[slugifyTopic(name)] ||
-    slugifyTopic(name)
-  )
+    pc[slugifyTopic(name)]
+  if (found) return { topic: found, mapped: true }
+  return { topic: slugifyTopic(name), mapped: false }
 }
 
 export async function getItemTopics(

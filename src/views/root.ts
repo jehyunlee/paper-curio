@@ -9,11 +9,14 @@ import {
   deployViaBridge,
   compareViaBridge,
   runFullViaBridge,
+  registerCollectionViaBridge,
 } from "../extract/pybridge"
-import { topicForCollection } from "../core/categorize"
+import { topicForCollection, resolveCollectionTopic } from "../core/categorize"
 import { findExisting } from "../core/papers-index"
 import { joinPath, pathExists } from "../utils/fs"
 import { openChatForSelection, openComparativeStudy } from "./chat"
+
+declare const Services: any
 
 const MENU_ID = `${config.addonRef}-itemmenu-review`
 const SEP_ID = `${config.addonRef}-itemmenu-sep`
@@ -647,7 +650,31 @@ async function onRunFullCommand(): Promise<void> {
     return
   }
   const target = await resolveOutputTarget()
-  const topic = await topicForCollection(coll.name, target.root)
+  const { topic: resolvedTopic, mapped } = await resolveCollectionTopic(
+    coll.name,
+    target.root,
+  )
+  let topic = resolvedTopic
+  if (!mapped) {
+    // 신규(미등록) 컬렉션 — alias(topic)를 물어보고 config.json 에 등록 후 진행.
+    const alias = promptForAlias(coll.name, resolvedTopic)
+    if (!alias) return
+    topic = alias
+    const reg = await registerCollectionViaBridge(alias, coll.name, target.root)
+    if (!reg.ok) {
+      toast(config.addonName)
+        .createLine({
+          type: "fail",
+          text: getString("toast-runfull-register-fail", {
+            args: { name: coll.name, err: String(reg.reason ?? "") },
+          }),
+          progress: 100,
+        })
+        .show()
+        .startCloseTimer(6000)
+      return
+    }
+  }
   const pw = toast(config.addonName)
     .createLine({
       type: "default",
@@ -693,4 +720,23 @@ async function onRunFullCommand(): Promise<void> {
     log("onRunFullCommand 예외", e)
   }
   pw.startCloseTimer(15000)
+}
+
+/** 미등록 컬렉션의 topic alias 를 사용자에게 묻는다. 취소/빈값이면 null. */
+function promptForAlias(collName: string, suggested: string): string | null {
+  const input = { value: suggested }
+  const ok = Services.prompt.prompt(
+    Zotero.getMainWindow(),
+    getString("runfull-alias-title"),
+    getString("runfull-alias-msg", { args: { name: collName } }),
+    input,
+    null,
+    { value: false },
+  )
+  if (!ok) return null
+  const v = String(input.value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+  return v || null
 }

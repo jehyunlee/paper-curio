@@ -118,7 +118,7 @@ def _find_py312_candidates(pc_root, managed):
 
 
 def _make_venv(base, venv_dir):
-    sys.stderr.write("[ensure_env] creating venv: %s (base=%s)\n" % (venv_dir, base))
+    sys.stderr.write("[ensure_env] creating venv: %s (base=%s)\\n" % (venv_dir, base))
     sys.stderr.flush()
     r = _run_log([base, "-m", "venv", venv_dir], timeout=300)
     if r.returncode != 0:
@@ -127,7 +127,7 @@ def _make_venv(base, venv_dir):
 
 def _pip_install(py, pc_root):
     req = os.path.join(pc_root, "requirements.txt")
-    sys.stderr.write("[ensure_env] installing dependencies (can take several minutes)...\n")
+    sys.stderr.write("[ensure_env] installing dependencies (can take several minutes)...\\n")
     sys.stderr.flush()
     _run_log([py, "-m", "pip", "install", "--upgrade", "pip"], timeout=600)
     r = _run_log([py, "-m", "pip", "install", "-r", req], timeout=5400)
@@ -156,7 +156,7 @@ def _download_standalone(managed):
             break
     if not url:
         raise RuntimeError("no python-build-standalone 3.12 asset for %s" % tag)
-    sys.stderr.write("[ensure_env] downloading Python 3.12: %s\n" % url)
+    sys.stderr.write("[ensure_env] downloading Python 3.12: %s\\n" % url)
     sys.stderr.flush()
     tgz = os.path.join(managed, "_py312.tar.gz")
     urllib.request.urlretrieve(url, tgz)
@@ -540,6 +540,36 @@ def main():
             print(json.dumps({"ok": False, "reason": "timeout"})); return
         except Exception as e:
             print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
+
+    if cmd == "register_collection":
+        # Map a new Zotero collection to a paper-curation topic alias by adding
+        # zotero.collections[alias] = collection_name to config.json (atomic).
+        alias, coll_name = sys.argv[3], sys.argv[4]
+        cfg_path = os.path.join(pc_root, "config.json")
+        try:
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+        z = cfg.get("zotero")
+        if not isinstance(z, dict):
+            z = {}
+            cfg["zotero"] = z
+        colls = z.get("collections")
+        if not isinstance(colls, dict):
+            colls = {}
+            z["collections"] = colls
+        colls[alias] = coll_name
+        try:
+            tmp = cfg_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, cfg_path)
+        except Exception as e:
+            print(json.dumps({"ok": False, "reason": "write:%s" % e})); return
+        print(json.dumps({"ok": True, "alias": alias})); return
 
     print(json.dumps({"error": "unknown cmd: %s" % cmd}))
 
@@ -1004,6 +1034,39 @@ export async function runFullViaBridge(
     return { ok: !!j.ok, reason: j.reason, tail: j.tail, code: j.code }
   } catch (e) {
     log("runFullViaBridge 예외", e)
+    return { ok: false, reason: String(e) }
+  }
+}
+
+/**
+ * 신규 Zotero 컬렉션을 paper-curation 토픽 alias 로 등록 — config.json 의
+ * zotero.collections[alias] = collectionName 을 추가한다. run_full 전에 호출해
+ * sync_zotero 가 컬렉션을 찾을 수 있게 한다.
+ */
+export async function registerCollectionViaBridge(
+  alias: string,
+  collectionName: string,
+  pcRoot: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (!pcRoot || !alias || !collectionName)
+    return { ok: false, reason: "no_args" }
+  try {
+    const runner = await resolveRunnerPython()
+    if (!runner) return { ok: false, reason: "no_python" }
+    const script = await ensureBridgeScript()
+    const r = await runPython(
+      [script, pcRoot, "register_collection", alias, collectionName],
+      undefined,
+      runner,
+    )
+    const j = lastJson(r.stdout)
+    if (!r.ok || !j?.ok) {
+      log("register_collection 실패", `code=${r.code}`, String(j?.reason ?? ""))
+      return { ok: false, reason: String(j?.reason ?? `bridge:${r.code}`) }
+    }
+    return { ok: true }
+  } catch (e) {
+    log("registerCollectionViaBridge 예외", e)
     return { ok: false, reason: String(e) }
   }
 }

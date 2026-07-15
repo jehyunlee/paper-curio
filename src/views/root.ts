@@ -700,11 +700,12 @@ async function onRunFullCommand(): Promise<void> {
         progress: 100,
       })
     } else {
+      const err = String(r.reason || r.tail || "")
       const text =
         r.reason === "no_python"
           ? getString("toast-runfull-no-python")
           : getString("toast-runfull-fail", {
-              args: { topic, err: String(r.reason ?? "") },
+              args: { topic, err },
             })
       pw.changeLine({ type: "fail", text, progress: 100 })
       log("run_full 실패", r.reason, r.tail)

@@ -527,6 +527,9 @@ def main():
         env = dict(os.environ)
         env["PAPER_CURATION_NO_DEPLOY"] = "1"
         env["PYTHONUTF8"] = "1"
+        py_dir = os.path.dirname(sys.executable)
+        env["PATH"] = py_dir + os.pathsep + env.get("PATH", "")
+        env["PAPER_CURATION_PY312"] = sys.executable
         try:
             cp = subprocess.run(
                 [sys.executable, "-u", sp, "--topic", topic,
@@ -1028,8 +1031,9 @@ export async function runFullViaBridge(
       return { ok: false, reason: `bridge:${r.code}`, tail: r.stderr.slice(0, 300) }
     }
     const j = lastJson(r.stdout)
-    log(`run_full ${j.ok ? "OK" : "실패"}: code=${j.code ?? ""} ${j.reason ?? ""}`)
-    return { ok: !!j.ok, reason: j.reason, tail: j.tail, code: j.code }
+    const reason = String(j.reason ?? j.tail ?? (j.code != null ? `exit:${j.code}` : ""))
+    log(`run_full ${j.ok ? "OK" : "실패"}: code=${j.code ?? ""} ${reason}`)
+    return { ok: !!j.ok, reason, tail: j.tail, code: j.code }
   } catch (e) {
     log("runFullViaBridge 예외", e)
     return { ok: false, reason: String(e) }

@@ -533,7 +533,8 @@ def main():
         try:
             cp = subprocess.run(
                 [sys.executable, "-u", sp, "--topic", topic,
-                 "--mode", "curate", "--source", "zotero"],
+                 "--mode", "curate", "--source", "zotero",
+                 "--images", "changed"],
                 cwd=pc_root, capture_output=True, text=True, timeout=28800, env=env)
             tail = ((cp.stdout or "") + " " + (cp.stderr or ""))[-800:]
             print(json.dumps({"ok": cp.returncode == 0, "code": cp.returncode, "tail": tail})); return

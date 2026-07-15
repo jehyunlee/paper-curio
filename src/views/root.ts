@@ -5,7 +5,11 @@ import { processItem } from "../core/pipeline"
 import { hasAnyProvider, configuredProviders } from "../llm"
 import { menu as log } from "../utils/loggers"
 import { resolveOutputTarget, tryResolveOutputTarget } from "../core/pc-discovery"
-import { deployViaBridge, compareViaBridge } from "../extract/pybridge"
+import {
+  deployViaBridge,
+  compareViaBridge,
+  runFullViaBridge,
+} from "../extract/pybridge"
 import { topicForCollection } from "../core/categorize"
 import { findExisting } from "../core/papers-index"
 import { joinPath, pathExists } from "../utils/fs"
@@ -18,6 +22,7 @@ const OPEN_REVIEW_ID = `${config.addonRef}-itemmenu-open-review`
 const CHAT_ID = `${config.addonRef}-itemmenu-chat`
 const COMPARE_STUDY_ID = `${config.addonRef}-itemmenu-compare-study`
 const DEPLOY_ID = `${config.addonRef}-collectionmenu-deploy`
+const RUN_FULL_ID = `${config.addonRef}-collectionmenu-runfull`
 const COMPARE_MAX = 6
 
 /** onMainWindowLoad에서 호출. 우클릭(item) 컨텍스트 메뉴에 단일 항목 등록. */
@@ -189,12 +194,22 @@ export function registerCollectionMenu(): void {
       void onDeployCommand()
     },
   })
+  ztoolkit.Menu.register("collection", {
+    tag: "menuitem",
+    id: RUN_FULL_ID,
+    label: getString("collectionmenu-runfull"),
+    icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
+    commandListener: () => {
+      void onRunFullCommand()
+    },
+  })
   log("collection menu 등록 완료")
 }
 
 export function unregisterCollectionMenu(): void {
   try {
     ztoolkit.Menu.unregister(DEPLOY_ID)
+    ztoolkit.Menu.unregister(RUN_FULL_ID)
   } catch {
     /* ignore */
   }
@@ -601,4 +616,81 @@ async function onDeployCommand(): Promise<void> {
     log("onDeployCommand 예외", e)
   }
   pw.startCloseTimer(12000)
+}
+
+/** 컬렉션 우클릭 → run_full (curate/zotero, 주제분류·타임라인 포함, 배포 제외). */
+async function onRunFullCommand(): Promise<void> {
+  const pane =
+    (Zotero as any).getActiveZoteroPane?.() ?? (globalThis as any).ZoteroPane
+  const coll = pane?.getSelectedCollection?.()
+  if (!(await requirePaperCuration())) return
+  if (!coll) {
+    toast(config.addonName)
+      .createLine({
+        type: "fail",
+        text: getString("toast-deploy-no-collection"),
+        progress: 100,
+      })
+      .show()
+      .startCloseTimer(4000)
+    return
+  }
+  if (!hasAnyProvider()) {
+    toast(config.addonName)
+      .createLine({
+        type: "fail",
+        text: getString("toast-no-provider"),
+        progress: 100,
+      })
+      .show()
+      .startCloseTimer(6000)
+    return
+  }
+  const target = await resolveOutputTarget()
+  const topic = await topicForCollection(coll.name, target.root)
+  const pw = toast(config.addonName)
+    .createLine({
+      type: "default",
+      text: getString("toast-runfull-env", { args: { topic } }),
+      progress: 10,
+    })
+    .show()
+  try {
+    const r = await runFullViaBridge(topic, target.root, (stage) => {
+      pw.changeLine({
+        type: "default",
+        text:
+          stage === "run"
+            ? getString("toast-runfull-running", { args: { topic } })
+            : getString("toast-runfull-env", { args: { topic } }),
+        progress: stage === "run" ? 50 : 20,
+      })
+    })
+    if (r.ok) {
+      pw.changeLine({
+        type: "success",
+        text: getString("toast-runfull-done", { args: { topic } }),
+        progress: 100,
+      })
+    } else {
+      const text =
+        r.reason === "no_python"
+          ? getString("toast-runfull-no-python")
+          : getString("toast-runfull-fail", {
+              args: { topic, err: String(r.reason ?? "") },
+            })
+      pw.changeLine({ type: "fail", text, progress: 100 })
+      log("run_full 실패", r.reason, r.tail)
+    }
+  } catch (e: any) {
+    pw.changeLine({
+      type: "fail",
+      text: getString("toast-runfull-fail", {
+        args: { topic, err: String(e?.message ?? e) },
+      }),
+      progress: 100,
+    })
+    log("onRunFullCommand 예외", e)
+  }
+  pw.startCloseTimer(15000)
 }

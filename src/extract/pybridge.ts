@@ -1,4 +1,4 @@
-import { getPref, getPrefStr } from "../utils/prefs"
+import { getPref, getPrefStr, setPref } from "../utils/prefs"
 import { getAnthropicKey, getGeminiKey } from "../utils/env"
 import { joinPath, writeText } from "../utils/fs"
 import { fs as log } from "../utils/loggers"
@@ -31,8 +31,10 @@ function pythonPath(): string {
  *  - inject_frontmatter <slug> <topic> → inject_frontmatter.py build_frontmatter/…/inject_into_review
  *  - classify <slug> <topic> → classify_papers.classify_via_bundle (HDBSCAN approximate_predict)
  *  - compare <slugs_csv> → compare_papers.run_compare (다중 논문 비교 HTML/md 생성)
+ *  - ensure_env <managed_dir> → py312(+deps) 인터프리터 확보 (없으면 venv 생성/파이썬 다운로드)
+ *  - run_full <topic> → run_full.py --mode curate --source zotero --images all (배포 제외, py312 실행)
  */
-const BRIDGE_PY = `import sys, os, json
+const BRIDGE_PY = `import sys, os, json, subprocess
 
 def _to_item(meta):
     # plugin PaperMeta(JSON) → write_review가 읽는 Zotero item dict
@@ -52,6 +54,145 @@ def _to_item(meta):
         "url": meta.get("url", ""),
         "key": meta.get("key", ""),
     }
+
+
+def _run(cmd, timeout=None):
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+
+def _run_log(cmd, timeout=None):
+    # stdout 을 캡처해 stderr 로만 흘린다 — 브리지 stdout 은 최종 JSON 만 남겨야
+    # lastJson() 파싱이 깨지지 않는다.
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if r.stdout:
+        sys.stderr.write(r.stdout)
+    if r.stderr:
+        sys.stderr.write(r.stderr)
+    sys.stderr.flush()
+    return r
+
+
+def _is_py312(py):
+    if not py or not os.path.exists(py):
+        return False
+    try:
+        r = _run([py, "-c", "import sys;print('%d.%d' % sys.version_info[:2])"], timeout=30)
+        return r.returncode == 0 and (r.stdout or "").strip() == "3.12"
+    except Exception:
+        return False
+
+
+def _probe_deps(py):
+    # 파이프라인이 실제로 요구하는 무거운 의존성만 게이트로 삼는다.
+    try:
+        r = _run([py, "-c", "import fitz, umap, hdbscan, sentence_transformers"], timeout=180)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _plat_tag():
+    import platform
+    m = platform.machine()
+    if m in ("arm64", "aarch64"):
+        return "aarch64-apple-darwin"
+    return "x86_64-apple-darwin"
+
+
+def _find_py312_candidates(pc_root, managed):
+    import shutil
+    out = []
+    def add(p):
+        p = (p or "").strip()
+        if p and p not in out:
+            out.append(p)
+    add(os.path.join(managed, "venv312", "bin", "python"))
+    add(os.environ.get("PAPER_CURATION_PY312", ""))
+    add(os.environ.get("PC_PYTHON_PATH", ""))
+    add("/opt/homebrew/Caskroom/miniconda/base/envs/py312/bin/python")
+    add("/opt/homebrew/opt/python@3.12/bin/python3.12")
+    add("/usr/local/opt/python@3.12/bin/python3.12")
+    add(shutil.which("python3.12"))
+    add(os.path.join(managed, "python312", "python", "bin", "python3.12"))
+    return out
+
+
+def _make_venv(base, venv_dir):
+    sys.stderr.write("[ensure_env] creating venv: %s (base=%s)\n" % (venv_dir, base))
+    sys.stderr.flush()
+    r = _run_log([base, "-m", "venv", venv_dir], timeout=300)
+    if r.returncode != 0:
+        raise RuntimeError("venv creation failed (exit %d)" % r.returncode)
+
+
+def _pip_install(py, pc_root):
+    req = os.path.join(pc_root, "requirements.txt")
+    sys.stderr.write("[ensure_env] installing dependencies (can take several minutes)...\n")
+    sys.stderr.flush()
+    _run_log([py, "-m", "pip", "install", "--upgrade", "pip"], timeout=600)
+    r = _run_log([py, "-m", "pip", "install", "-r", req], timeout=5400)
+    if r.returncode != 0:
+        raise RuntimeError("pip install failed (exit %d)" % r.returncode)
+
+
+def _download_standalone(managed):
+    import urllib.request, tarfile, platform, json as _json
+    dest = os.path.join(managed, "python312")
+    cand = os.path.join(dest, "python", "bin", "python3.12")
+    if os.path.exists(cand):
+        return cand
+    if platform.system() != "Darwin":
+        raise RuntimeError("auto-download supports macOS only; install Python 3.12 manually")
+    os.makedirs(dest, exist_ok=True)
+    tag = _plat_tag()
+    api = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
+    req = urllib.request.Request(api, headers={"User-Agent": "paper-curio"})
+    data = _json.load(urllib.request.urlopen(req, timeout=60))
+    url = ""
+    for a in data.get("assets", []):
+        n = a.get("name", "")
+        if "cpython-3.12" in n and tag in n and n.endswith("install_only.tar.gz"):
+            url = a.get("browser_download_url", "")
+            break
+    if not url:
+        raise RuntimeError("no python-build-standalone 3.12 asset for %s" % tag)
+    sys.stderr.write("[ensure_env] downloading Python 3.12: %s\n" % url)
+    sys.stderr.flush()
+    tgz = os.path.join(managed, "_py312.tar.gz")
+    urllib.request.urlretrieve(url, tgz)
+    with tarfile.open(tgz) as t:
+        t.extractall(dest)
+    try:
+        os.remove(tgz)
+    except Exception:
+        pass
+    if not os.path.exists(cand):
+        raise RuntimeError("standalone extract missing python3.12")
+    return cand
+
+
+def _ensure_py312(pc_root, managed):
+    cands = _find_py312_candidates(pc_root, managed)
+    for c in cands:
+        if _is_py312(c) and _probe_deps(c):
+            return c, "found"
+    venv_dir = os.path.join(managed, "venv312")
+    venv_py = os.path.join(venv_dir, "bin", "python")
+    base = None
+    for c in cands:
+        if c != venv_py and _is_py312(c):
+            base = c
+            break
+    action = "venv-created"
+    if base is None:
+        base = _download_standalone(managed)
+        action = "downloaded"
+    if not _is_py312(venv_py):
+        _make_venv(base, venv_dir)
+    _pip_install(venv_py, pc_root)
+    if _is_py312(venv_py) and _probe_deps(venv_py):
+        return venv_py, action
+    raise RuntimeError("environment prepared but dependency import still fails")
 
 def main():
     if len(sys.argv) < 3:
@@ -369,6 +510,37 @@ def main():
         except Exception as e:
             print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
 
+    if cmd == "ensure_env":
+        managed = sys.argv[3] if len(sys.argv) > 3 else os.path.join(pc_root, ".pc_managed")
+        os.makedirs(managed, exist_ok=True)
+        try:
+            py, action = _ensure_py312(pc_root, managed)
+            print(json.dumps({"ok": True, "python": py, "action": action})); return
+        except Exception as e:
+            print(json.dumps({"ok": False, "reason": str(e)})); return
+
+    if cmd == "run_full":
+        # Full pipeline for a topic: Zotero sync -> review new -> classify ->
+        # timeline images. Cloudflare deploy suppressed (use the Deploy menu).
+        topic = sys.argv[3]
+        sp = os.path.join(pc_root, "pipeline", "run_full.py")
+        if not os.path.exists(sp):
+            print(json.dumps({"ok": False, "reason": "no_run_full"})); return
+        env = dict(os.environ)
+        env["PAPER_CURATION_NO_DEPLOY"] = "1"
+        env["PYTHONUTF8"] = "1"
+        try:
+            cp = subprocess.run(
+                [sys.executable, "-u", sp, "--topic", topic,
+                 "--mode", "curate", "--source", "zotero", "--images", "all"],
+                cwd=pc_root, capture_output=True, text=True, timeout=28800, env=env)
+            tail = ((cp.stdout or "") + " " + (cp.stderr or ""))[-800:]
+            print(json.dumps({"ok": cp.returncode == 0, "code": cp.returncode, "tail": tail})); return
+        except subprocess.TimeoutExpired:
+            print(json.dumps({"ok": False, "reason": "timeout"})); return
+        except Exception as e:
+            print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
+
     print(json.dumps({"error": "unknown cmd: %s" % cmd}))
 
 if __name__ == "__main__":
@@ -422,13 +594,14 @@ interface PyResult {
 async function runPython(
   args: string[],
   env?: Record<string, string>,
+  exe?: string,
 ): Promise<PyResult> {
   const Subprocess = await getSubprocess()
   if (!Subprocess) {
     return { ok: false, stdout: "", stderr: "Subprocess 모듈 접근 불가", code: -1 }
   }
   try {
-    const opts: any = { command: pythonPath(), arguments: args, stderr: "pipe" }
+    const opts: any = { command: exe || pythonPath(), arguments: args, stderr: "pipe" }
     if (env && Object.keys(env).length) {
       opts.environment = env
       opts.environmentAppend = true // 기존 env(PATH 등) 보존하며 추가
@@ -733,6 +906,107 @@ export async function deployViaBridge(
   }
 }
 
+
+let _runnerCache: string | undefined
+
+/** 부트스트랩용 python3(>=3.8) 하나를 찾는다. ensure_env 스크립트 실행에만 사용. */
+async function resolveRunnerPython(): Promise<string> {
+  if (_runnerCache !== undefined) return _runnerCache
+  const cands = [
+    pythonPath(),
+    "/opt/homebrew/Caskroom/miniconda/base/envs/py312/bin/python",
+    "/opt/homebrew/bin/python3.12",
+    "/opt/homebrew/bin/python3",
+    "/usr/local/bin/python3",
+    "/usr/bin/python3",
+  ]
+  for (const c of cands) {
+    const r = await runPython(
+      ["-c", "import sys;print(sys.version_info[0])"],
+      undefined,
+      c,
+    )
+    if (r.ok && r.stdout.trim().startsWith("3")) {
+      _runnerCache = c
+      return c
+    }
+  }
+  _runnerCache = ""
+  return ""
+}
+
+/**
+ * run_full 실행에 쓸 py312(+deps) 인터프리터를 확보한다. 없으면 관리형 venv를
+ * 만들어 requirements를 설치하고, python3.12 자체가 없으면 relocatable Python을
+ * 내려받는다. 최초 1회만 오래 걸리고 이후엔 즉시 반환.
+ */
+export async function ensurePy312(
+  pcRoot: string,
+): Promise<{ ok: boolean; python?: string; action?: string; reason?: string }> {
+  const runner = await resolveRunnerPython()
+  if (!runner) return { ok: false, reason: "no_python" }
+  const script = await ensureBridgeScript()
+  const managed = joinPath(PathUtils.profileDir, "papercurio")
+  const env: Record<string, string> = {}
+  const pp = getPrefStr("PYTHON_PATH")
+  if (pp) env.PC_PYTHON_PATH = pp
+  const r = await runPython([script, pcRoot, "ensure_env", managed], env, runner)
+  const j = lastJson(r.stdout)
+  if (!r.ok || !j?.ok) {
+    log("ensure_env 실패", `code=${r.code}`, String(j?.reason ?? ""), r.stderr.slice(-400))
+    return { ok: false, reason: String(j?.reason ?? `bridge:${r.code}`) }
+  }
+  return { ok: true, python: j.python, action: j.action }
+}
+
+/**
+ * 컬렉션 전체 처리 — Zotero sync → 신규 리뷰 → 주제분류 → 타임라인 이미지.
+ * Cloudflare 배포는 하지 않는다(PAPER_CURATION_NO_DEPLOY=1). py312 환경을 먼저
+ * 확보한 뒤 그 인터프리터로 run_full.py를 돌린다. 길게 걸린다(수 분~).
+ */
+export async function runFullViaBridge(
+  topic: string,
+  pcRoot: string,
+  onStage?: (stage: "env" | "run") => void,
+): Promise<{ ok: boolean; reason?: string; tail?: string; code?: number }> {
+  if (!pcRoot || !topic) return { ok: false, reason: "no_topic" }
+  try {
+    onStage?.("env")
+    const boot = await ensurePy312(pcRoot)
+    if (!boot.ok || !boot.python) {
+      return { ok: false, reason: boot.reason ?? "env" }
+    }
+    if (boot.action && boot.action !== "found") {
+      log(`py312 준비: ${boot.action} → ${boot.python}`)
+      setPref("PYTHON_PATH", boot.python)
+    }
+    onStage?.("run")
+    const script = await ensureBridgeScript()
+    const env: Record<string, string> = { PAPER_CURATION_NO_DEPLOY: "1" }
+    const a = getAnthropicKey()
+    if (a) env.ANTHROPIC_API_KEY = a
+    const g = getGeminiKey()
+    if (g) {
+      env.GOOGLE_API_KEY = g
+      env.GEMINI_API_KEY = g
+    }
+    const r = await runPython(
+      [script, pcRoot, "run_full", topic],
+      env,
+      boot.python,
+    )
+    if (!r.ok) {
+      log("run_full 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
+      return { ok: false, reason: `bridge:${r.code}`, tail: r.stderr.slice(0, 300) }
+    }
+    const j = lastJson(r.stdout)
+    log(`run_full ${j.ok ? "OK" : "실패"}: code=${j.code ?? ""} ${j.reason ?? ""}`)
+    return { ok: !!j.ok, reason: j.reason, tail: j.tail, code: j.code }
+  } catch (e) {
+    log("runFullViaBridge 예외", e)
+    return { ok: false, reason: String(e) }
+  }
+}
 export async function integrateViaBridge(
   topic: string,
   pcRoot: string,

@@ -38,6 +38,14 @@ toast-deploy-done = Web deploy complete: { $topic }
 toast-deploy-fail = Web deploy failed: { $topic } — { $err }
 toast-deploy-no-cf = No Cloudflare credentials. Add cloudflare.api_token / cloudflare.account_id to config.json, or set CF_API_TOKEN / CLOUDFLARE_ACCOUNT_ID env vars.
 
+# Collection menu — full processing (run_full)
+collectionmenu-runfull = Process this collection (review · classify · timelines)
+toast-runfull-env = Preparing py312 env: { $topic } … (first run may install for a few minutes)
+toast-runfull-running = Running full pipeline: { $topic } … (review · classify · timelines; no deploy)
+toast-runfull-done = Full processing complete: { $topic }
+toast-runfull-fail = Full processing failed: { $topic } — { $err }
+toast-runfull-no-python = No Python found — install Python 3.12 or set the Python path in Settings → Paper Curio.
+
 # Toasts — open review HTML
 toast-open-review-opened = Opened { $opened } review HTML file(s) ({ $missing } missing)
 toast-open-review-none = No generated review HTML found — run 'paper-curation Review generation' first.

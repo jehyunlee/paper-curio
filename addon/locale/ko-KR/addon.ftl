@@ -38,6 +38,14 @@ toast-deploy-done = 웹 배포 완료: { $topic }
 toast-deploy-fail = 웹 배포 실패: { $topic } — { $err }
 toast-deploy-no-cf = Cloudflare 자격증명이 없습니다. config.json의 cloudflare.api_token / cloudflare.account_id 를 추가하거나 CF_API_TOKEN·CLOUDFLARE_ACCOUNT_ID 환경변수를 설정하세요.
 
+# 컬렉션 메뉴 — 전체 처리 (run_full)
+collectionmenu-runfull = 이 컬렉션 전체 처리 (리뷰·주제분류·타임라인)
+toast-runfull-env = py312 환경 확인 중: { $topic } … (최초 1회 설치 시 수 분 소요)
+toast-runfull-running = 전체 파이프라인 실행 중: { $topic } … (리뷰·주제분류·타임라인, 배포 제외)
+toast-runfull-done = 전체 처리 완료: { $topic }
+toast-runfull-fail = 전체 처리 실패: { $topic } — { $err }
+toast-runfull-no-python = Python 을 찾을 수 없습니다 — Python 3.12 를 설치하거나 Settings → Paper Curio 의 Python path 를 지정하세요.
+
 # 토스트 — Review HTML 열기
 toast-open-review-opened = Review HTML { $opened }개 열었습니다 (없음 { $missing })
 toast-open-review-none = 생성된 Review HTML이 없습니다 — 먼저 'paper-curation Review 생성'을 실행하세요.

@@ -15,7 +15,7 @@ import {
 import { topicForCollection, resolveCollectionTopic } from "../core/categorize"
 import { findExisting } from "../core/papers-index"
 import { joinPath, pathExists, readJson } from "../utils/fs"
-import { registerCitingPapers } from "../apis/zotero/register"
+import { registerCitingPapers, attachAvailablePdfs } from "../apis/zotero/register"
 import type { CitingPaper } from "../apis/zotero/register"
 import { openChatForSelection, openComparativeStudy } from "./chat"
 
@@ -767,6 +767,9 @@ async function maybeRegisterCitingPapers(
       }),
       progress: 100,
     })
+    pw.startCloseTimer(6000)
+    await maybeAttachPdfs(res.items)
+    return
   } catch (e) {
     log("citedby 등록 예외", e)
     pw.changeLine({
@@ -778,6 +781,70 @@ async function maybeRegisterCitingPapers(
     })
   }
   pw.startCloseTimer(8000)
+}
+
+/**
+ * 새로 등록한 항목에 OA PDF 를 붙일지 묻고, 승낙하면 첨부한다.
+ *
+ * Zotero 의 "Find Available PDF"(`addAvailablePDF`)를 그대로 쓰므로 DOI →
+ * URL → Unpaywall 순으로 해석하고, 사용자가 설정한 기관 프록시도 탄다.
+ * 유료 논문은 PDF 가 없는 게 정상이라 실패로 세지 않는다.
+ *
+ * 발행사 서버를 순차로 두드리므로 편당 ~1초가 걸린다 — 그래서 등록과 분리해
+ * 따로 물어본다.
+ */
+async function maybeAttachPdfs(items: Zotero.Item[]): Promise<void> {
+  if (!items.length) return
+
+  const confirmed = Services.prompt.confirm(
+    Zotero.getMainWindow(),
+    getString("citedby-pdf-title"),
+    getString("citedby-pdf-msg", { args: { n: items.length } }),
+  )
+  if (!confirmed) return
+
+  const pw = toast(config.addonName)
+    .createLine({
+      type: "default",
+      text: getString("toast-citedby-pdf-running", {
+        args: { done: 0, total: items.length, attached: 0 },
+      }),
+      progress: 3,
+    })
+    .show()
+
+  try {
+    const res = await attachAvailablePdfs(items, (done, total, attached) => {
+      pw.changeLine({
+        type: "default",
+        text: getString("toast-citedby-pdf-running", {
+          args: { done, total, attached },
+        }),
+        progress: Math.min(99, Math.round((done / total) * 100)),
+      })
+    })
+    pw.changeLine({
+      type: res.attached > 0 ? "success" : "default",
+      text: getString("toast-citedby-pdf-done", {
+        args: {
+          attached: res.attached,
+          missing: res.missing,
+          failed: res.failed,
+        },
+      }),
+      progress: 100,
+    })
+  } catch (e) {
+    log("citedby PDF 첨부 예외", e)
+    pw.changeLine({
+      type: "fail",
+      text: getString("toast-citedby-pdf-fail", {
+        args: { err: String(e).slice(0, 160) },
+      }),
+      progress: 100,
+    })
+  }
+  pw.startCloseTimer(10000)
 }
 
 async function onDeployCommand(): Promise<void> {

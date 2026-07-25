@@ -31,6 +31,17 @@ export interface RegisterResult {
   added: number
   skipped: number
   failed: number
+  /** 새로 만든 항목 — PDF 첨부 대상. 중복으로 건너뛴 항목은 포함하지 않는다. */
+  items: Zotero.Item[]
+}
+
+export interface PdfResult {
+  /** OA PDF 를 찾아 첨부한 건수 */
+  attached: number
+  /** 유료/미공개라 찾지 못한 건수 (실패가 아니라 정상적인 결과) */
+  missing: number
+  /** 네트워크·파싱 오류 */
+  failed: number
 }
 
 /** 제목 비교 키 — 출처별 구두점·대소문자 차이를 흡수 (paper-curation 과 동일 규칙). */
@@ -145,6 +156,7 @@ export async function registerCitingPapers(
   const existing = await buildExistingKeys(libraryID)
   const indexed = existing.dois.size > 0 || existing.titles.size > 0
 
+  const created: Zotero.Item[] = []
   let added = 0
   let skipped = 0
   let failed = 0
@@ -205,6 +217,7 @@ export async function registerCitingPapers(
       if (doi) existing.dois.add(doi)
       if (tkey) existing.titles.add(tkey)
       if (aid) existing.arxiv.add(aid)
+      created.push(item)
       added++
     } catch (e) {
       log("등록 실패", title.slice(0, 60), e)
@@ -213,5 +226,54 @@ export async function registerCitingPapers(
   }
 
   log(`citedby 등록 완료 — 추가 ${added} / 중복 ${skipped} / 실패 ${failed}`)
-  return { added, skipped, failed }
+  return { added, skipped, failed, items: created }
+}
+
+/**
+ * 등록한 항목에 OA PDF 를 찾아 붙인다 — Zotero 자체 "Find Available PDF" 사용.
+ *
+ * `Zotero.Attachments.addAvailablePDF()` 가 DOI → URL → Unpaywall(OA) 순으로
+ * 해석기를 돌린다. 우리가 Unpaywall 을 다시 구현할 이유가 없고, 사용자가 설정한
+ * 기관 프록시·커스텀 해석기까지 그대로 탄다.
+ *
+ * PDF 를 못 찾는 건 **실패가 아니다** — 유료 논문이면 정상적인 결과라
+ * `missing` 으로 따로 센다.
+ *
+ * 발행사 서버를 두드리므로 항목 사이에 지연을 둔다 (Zotero 의 배치 API 도
+ * 같은 도메인 요청에 1초 지연을 넣는다).
+ */
+export async function attachAvailablePdfs(
+  items: Zotero.Item[],
+  onProgress?: (done: number, total: number, attached: number) => void,
+  delayMs = 1000,
+): Promise<PdfResult> {
+  const A = (Zotero as any).Attachments
+  let attached = 0
+  let missing = 0
+  let failed = 0
+  const total = items.length
+
+  for (let i = 0; i < total; i++) {
+    const item = items[i]
+    try {
+      // DOI/URL 이 전혀 없으면 해석기가 시도할 것도 없다.
+      if (A.canFindPDFForItem && !A.canFindPDFForItem(item)) {
+        missing++
+      } else {
+        const att = await A.addAvailablePDF(item)
+        if (att) attached++
+        else missing++
+      }
+    } catch (e) {
+      log("PDF 첨부 실패", String(item.getField("title") || "").slice(0, 60), e)
+      failed++
+    }
+    onProgress?.(i + 1, total, attached)
+    if (delayMs > 0 && i < total - 1) {
+      await new Promise((r) => setTimeout(r, delayMs))
+    }
+  }
+
+  log(`citedby PDF — 첨부 ${attached} / 없음 ${missing} / 오류 ${failed}`)
+  return { attached, missing, failed }
 }

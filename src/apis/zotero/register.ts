@@ -18,7 +18,17 @@ export interface CitingPaper {
   arxiv_id?: string
   url?: string
   journal?: string
+  /** 소스가 준 완전한 날짜(YYYY-MM-DD). 없으면 year 로 폴백된 값. */
+  date?: string
   year?: string
+  volume?: string
+  issue?: string
+  pages?: string
+  issn?: string
+  publisher?: string
+  language?: string
+  /** 원 소스의 문헌 유형 (journal-article / preprint / posted-content 등). */
+  item_type?: string
   authors?: string[]
   abstract?: string
   citation_count?: string
@@ -57,6 +67,42 @@ function normalizeDoi(doi: string): string {
     .trim()
     .toLowerCase()
     .replace(/^https?:\/\/(dx\.)?doi\.org\//, "")
+}
+
+/**
+ * 원 소스의 문헌 유형 → Zotero 아이템 타입.
+ *
+ * Crossref(`journal-article`, `posted-content`), OpenAlex(`article`,
+ * `preprint`), S2(`JournalArticle`, `Conference`) 가 각자 다른 어휘를 쓰므로
+ * 소문자로 눌러 부분 문자열로 판정한다. 모르면 journalArticle 로 둔다.
+ */
+function zoteroItemType(raw?: string): string {
+  const t = (raw || "").toLowerCase()
+  if (!t) return "journalArticle"
+  if (t.includes("posted-content") || t.includes("preprint")) return "preprint"
+  if (t.includes("proceedings") || t.includes("conference")) return "conferencePaper"
+  if (t.includes("book-chapter") || t.includes("bookchapter")) return "bookSection"
+  if (t.includes("dissertation") || t.includes("thesis")) return "thesis"
+  if (t.includes("report")) return "report"
+  if (t.includes("dataset")) return "dataset"
+  return "journalArticle"
+}
+
+/**
+ * 아이템 타입에 없는 필드면 조용히 건너뛴다.
+ *
+ * `volume`/`ISSN` 은 journalArticle 에는 있지만 preprint 에는 없어, 그냥
+ * `setField` 하면 예외가 나며 등록 자체가 실패한다. 서지 한 칸 때문에 논문을
+ * 통째로 잃지 않도록 막는다.
+ */
+function setIfValid(item: any, field: string, value?: string): void {
+  const v = (value || "").trim()
+  if (!v) return
+  try {
+    item.setField(field, v)
+  } catch {
+    /* 이 아이템 타입에 없는 필드 — 무시 */
+  }
 }
 
 /** 저자 문자열 → Zotero creator. "Lastname, F." 와 "First Last" 를 모두 흡수. */
@@ -194,21 +240,33 @@ export async function registerCitingPapers(
     }
 
     try {
-      const item = new (Zotero as any).Item("journalArticle")
+      const item = new (Zotero as any).Item(zoteroItemType(p.item_type))
       item.libraryID = libraryID
-      item.setField("title", title)
-      if (doi) item.setField("DOI", doi)
-      if (p.journal) item.setField("publicationTitle", p.journal)
-      if (p.year) item.setField("date", p.year)
-      if (p.abstract) item.setField("abstractNote", p.abstract)
-      if (p.url) item.setField("url", p.url)
-      else if (aid) item.setField("url", `https://arxiv.org/abs/${aid}`)
+      setIfValid(item, "title", title)
+      setIfValid(item, "DOI", doi)
+      setIfValid(item, "publicationTitle", p.journal)
+      // 완전한 날짜를 우선 쓴다 — year 만 넣으면 Zotero Date 가 "2025" 로 남는다.
+      setIfValid(item, "date", (p.date || p.year || "").trim())
+      setIfValid(item, "volume", p.volume)
+      setIfValid(item, "issue", p.issue)
+      setIfValid(item, "pages", p.pages)
+      setIfValid(item, "ISSN", p.issn)
+      setIfValid(item, "language", p.language)
+      setIfValid(item, "abstractNote", p.abstract)
+      setIfValid(item, "url", p.url || (aid ? `https://arxiv.org/abs/${aid}` : ""))
+      // preprint 아이템 타입에만 있는 필드 — 없으면 조용히 무시된다.
+      if (aid) {
+        setIfValid(item, "repository", "arXiv")
+        setIfValid(item, "archiveID", `arXiv:${aid}`)
+      }
 
-      // arXiv id 는 표준 필드가 없어 Extra 에 관례대로 넣는다.
+      // 아이템 타입에 해당 필드가 없을 때를 대비해 Extra 에도 남긴다.
+      // (journalArticle 에는 publisher 필드가 없다.)
       const extras: string[] = []
       if (aid) extras.push(`arXiv:${aid}`)
+      if (p.publisher) extras.push(`Publisher: ${p.publisher}`)
       if (p.source) extras.push(`citedby-source: ${p.source}`)
-      if (extras.length) item.setField("extra", extras.join("\n"))
+      if (extras.length) setIfValid(item, "extra", extras.join("\n"))
 
       if (p.authors?.length) item.setCreators(p.authors.map(toCreator))
 

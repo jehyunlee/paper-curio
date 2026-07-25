@@ -23,10 +23,42 @@ export interface ExtractedFigure {
   file: string // figures/figN.png
 }
 
-const DEFAULT_PYTHON = "/opt/homebrew/Caskroom/miniconda/base/envs/py312/bin/python"
+/**
+ * py312 인터프리터 후보. 앞에서부터 실제로 존재하는 첫 항목을 쓴다.
+ *
+ * 단일 경로를 박아 두면 머신이 바뀔 때마다 깨진다 — 맥북은 miniconda,
+ * 맥미니는 miniforge 라 실제로 갈렸다. paper-curation 의 `_env_guard` 와
+ * 같은 우선순위를 따른다.
+ */
+const PY312_CANDIDATES = [
+  "/opt/homebrew/Caskroom/miniconda/base/envs/py312/bin/python",
+  "/opt/homebrew/Caskroom/miniforge/base/envs/py312/bin/python",
+  "/opt/miniconda3/envs/py312/bin/python",
+  "/opt/miniforge3/envs/py312/bin/python",
+  "/opt/homebrew/opt/python@3.12/bin/python3.12",
+  "/usr/local/opt/python@3.12/bin/python3.12",
+]
+const DEFAULT_PYTHON = PY312_CANDIDATES[0]
 
-function pythonPath(): string {
-  return getPrefStr("PYTHON_PATH") || DEFAULT_PYTHON
+let _pythonCache: string | undefined
+
+/** pref 가 있으면 그대로, 없으면 존재하는 첫 후보. */
+async function pythonPath(): Promise<string> {
+  const pref = getPrefStr("PYTHON_PATH")
+  if (pref) return pref
+  if (_pythonCache !== undefined) return _pythonCache
+  for (const c of PY312_CANDIDATES) {
+    try {
+      if (await IOUtils.exists(c)) {
+        _pythonCache = c
+        return c
+      }
+    } catch {
+      /* 접근 불가 후보는 건너뛴다 */
+    }
+  }
+  _pythonCache = DEFAULT_PYTHON
+  return DEFAULT_PYTHON
 }
 
 /**
@@ -119,6 +151,9 @@ def _find_py312_candidates(pc_root, managed):
     add(os.environ.get("PAPER_CURATION_PY312", ""))
     add(os.environ.get("PC_PYTHON_PATH", ""))
     add("/opt/homebrew/Caskroom/miniconda/base/envs/py312/bin/python")
+    add("/opt/homebrew/Caskroom/miniforge/base/envs/py312/bin/python")
+    add("/opt/miniconda3/envs/py312/bin/python")
+    add("/opt/miniforge3/envs/py312/bin/python")
     add("/opt/homebrew/opt/python@3.12/bin/python3.12")
     add("/usr/local/opt/python@3.12/bin/python3.12")
     add(shutil.which("python3.12"))
@@ -682,7 +717,7 @@ async function runPython(
     return { ok: false, stdout: "", stderr: "Subprocess 모듈 접근 불가", code: -1 }
   }
   try {
-    const opts: any = { command: exe || pythonPath(), arguments: args, stderr: "pipe" }
+    const opts: any = { command: exe || (await pythonPath()), arguments: args, stderr: "pipe" }
     if (env && Object.keys(env).length) {
       opts.environment = env
       opts.environmentAppend = true // 기존 env(PATH 등) 보존하며 추가
@@ -994,8 +1029,9 @@ let _runnerCache: string | undefined
 async function resolveRunnerPython(): Promise<string> {
   if (_runnerCache !== undefined) return _runnerCache
   const cands = [
-    pythonPath(),
+    await pythonPath(),
     "/opt/homebrew/Caskroom/miniconda/base/envs/py312/bin/python",
+    "/opt/homebrew/Caskroom/miniforge/base/envs/py312/bin/python",
     "/opt/homebrew/bin/python3.12",
     "/opt/homebrew/bin/python3",
     "/usr/local/bin/python3",

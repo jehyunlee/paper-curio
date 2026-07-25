@@ -7,6 +7,7 @@ import {
   getScopusInstToken,
   getS2Key,
   getOpenAlexEmail,
+  getSpringerMetaKey,
 } from "../utils/env"
 import { joinPath, writeText } from "../utils/fs"
 import { fs as log } from "../utils/loggers"
@@ -1234,6 +1235,8 @@ export async function citedbyViaBridge(
       env.OPENALEX_EMAIL = mail
       env.CROSSREF_EMAIL = mail
     }
+    const sn = getSpringerMetaKey()
+    if (sn) env.SPRINGER_META_API_KEY = sn
     const r = await runPython(
       [
         script,

@@ -11,6 +11,7 @@ pref("extensions.zotero.__addonRef__.SCOPUS_API_KEY", "")
 pref("extensions.zotero.__addonRef__.SCOPUS_INST_TOKEN", "")
 pref("extensions.zotero.__addonRef__.S2_API_KEY", "")
 pref("extensions.zotero.__addonRef__.OPENALEX_EMAIL", "")
+pref("extensions.zotero.__addonRef__.SPRINGER_META_API_KEY", "")
 
 // Default models per provider (paper-curation과 동일 기준)
 // Anthropic: paper-curation WRITE_REVIEW_MODEL. Gemini: 주력 모델. OpenAI: 참조 모델.

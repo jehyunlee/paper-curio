@@ -58,6 +58,21 @@ export function getS2Key(): string {
   return resolveKey("S2_API_KEY", "S2_API_KEY")
 }
 
+/**
+ * Springer Nature **Metadata** API 키 (선택).
+ *
+ * OpenAccess API 키와 **다른 키**다. 폐쇄형 Springer/Nature 논문의 초록은
+ * OpenAlex/Crossref/S2 어디에도 없는데(발행사가 재배포를 막는다), 이 API 만
+ * 준다. 실측: 초록 결손 8편이 다른 소스에서 전부 실패했지만 여기선 8/8 회수.
+ */
+export function getSpringerMetaKey(): string {
+  return (
+    resolveKey("SPRINGER_META_API_KEY", "SPRINGER_META_API_KEY") ||
+    getOSEnv("NATURESPRINGERMETA_API_KEY") ||
+    getOSEnv("NATURESPRINTERMETA_API_KEY")
+  )
+}
+
 /** OpenAlex/Crossref polite pool 이메일 (선택 — 있으면 우선 처리된다). */
 export function getOpenAlexEmail(): string {
   return (
@@ -73,7 +88,7 @@ export function getOpenAlexEmail(): string {
 export function injectEnvSecrets() {
   for (const k of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
                    "SCOPUS_API_KEY", "SCOPUS_INST_TOKEN", "S2_API_KEY",
-                   "OPENALEX_EMAIL"]) {
+                   "OPENALEX_EMAIL", "SPRINGER_META_API_KEY"]) {
     const env = getOSEnv(k)
     if (env) {
       setPref(k, env)

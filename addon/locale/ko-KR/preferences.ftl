@@ -32,3 +32,4 @@ pref-scopus-key = Scopus API Key
 pref-scopus-token = Scopus Inst Token
 pref-s2-key = Semantic Scholar Key
 pref-openalex-email = OpenAlex/Crossref Email
+pref-springer-meta-key = Springer Nature Metadata Key

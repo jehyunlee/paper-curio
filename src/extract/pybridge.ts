@@ -535,6 +535,10 @@ def main():
             argv += ["--slug", slug]
         if sources:
             argv += ["--sources", sources]
+        # PDF-first — 근거 우선순위는 코퍼스 전처리물 > 보유 PDF 전문 > 초록 >
+        # 제목. 제외하지 않고 등급만 매긴다. 인덱스까지 만들어야 리포트에
+        # Deep Research 패널이 붙는다.
+        argv += ["--pdf-first", "--build-index"]
         env = dict(os.environ)
         env["PYTHONUTF8"] = "1"
         env["PAPER_CURATION_PY312"] = sys.executable

@@ -674,7 +674,23 @@ async function onCitedbyCommand(): Promise<void> {
   })
   pw.startCloseTimer(6000)
 
-  if (r.report) {
+  // Deep Research 패널은 file:// 에서 동작하지 않는다 — 브라우저가 CORS 로
+  // 인덱스 fetch 를 막고 /api/embed 도 없다. paper-curation 이 serve_local 을
+  // 띄우고 http URL 을 돌려주므로, 그게 있으면 그쪽을 연다.
+  if (r.url) {
+    try {
+      Zotero.launchURL(r.url)
+    } catch (e) {
+      log("citedby 리포트 URL 열기 실패", e)
+      if (r.report) {
+        try {
+          ;(Zotero as any).launchFile(r.report)
+        } catch (e2) {
+          log("citedby 리포트 열기 실패", e2)
+        }
+      }
+    }
+  } else if (r.report) {
     try {
       ;(Zotero as any).launchFile(r.report)
     } catch (e) {

@@ -11,6 +11,7 @@ Zotero 9 플러그인 — **논문 PDF와 바로 대화(AI Chat)하고, 여러 �
 | 필요 조건 | Zotero + LLM API 키 | + paper-curation 경로 (Settings) |
 | AI Chat — PDF와 멀티턴 대화 (스트리밍·수식·EN/KO) | ✅ | ✅ 코퍼스 text.md 우선 → **더 빠름** |
 | Comparative Chat — 논문 비교 분석 | ✅ 선택 논문끼리 | ✅ + **이미 연결된 관련 연구**와 함께 |
+| **Citedby** — 이 논문을 인용한 논문 분석 | — | ✅ HTML 리포트(PDF 출력·Zotero 링크) + Zotero 일괄 등록 |
 | 답변 속 논문 **그림 인라인 표시** | — | ✅ |
 | 대화 내보내기 .md / .html | ✅ | ✅ (그림 임베드 포함) |
 | 대화 내보내기 **Obsidian** (위키링크) | — | ✅ |
@@ -94,6 +95,7 @@ paper-curation은 표준으로 **py312 환경**에서 돕니다. 같은 인터�
 - ✅ 우클릭 단일/다중 처리 + 진행 윈도우
 - ✅ 우클릭 `paper-curation Review HTML 열기` — 이미 생성된 리뷰(index.html)를 브라우저로 바로 오픈 (생성 안 함)
 - ✅ 우클릭 `paper-curation AI 대화 (PDF Q&A)` — 논문 PDF를 컨텍스트로 멀티턴 질의응답, 상단에서 GPT·Anthropic·Gemini 모델 선택
+- ✅ 우클릭 `paper-curation Citedby` — 선택 논문의 DOI로 인용논문을 OpenAlex·Scopus·S2·arXiv에서 수집 → 독창성 추출 → (주제 입력 시) LLM 필터 + 5W1H 요약 → **자기완결 HTML 리포트**를 브라우저로 오픈. 리포트의 **[PDF 출력]** 버튼은 링크가 살아있는 PDF를 만들고, 내 라이브러리에 있는 논문은 `zotero://open-pdf`(없으면 서지정보)로 바로 열린다. 이어서 인용논문을 **Zotero에 일괄 등록**할 수 있다 (DOI·arXiv·제목 중복 자동 skip) → 그대로 `run_full --mode curate --source zotero` 로 이어짐
 - ✅ **text·figure·review·originality·connections를 모두 paper-curation 원본 함수로 생성** (py312 브리지)
 - ✅ Collection 우클릭 `이 컬렉션 전체 처리` — 신규 컬렉션은 alias를 물어 `config.json`에 등록한 뒤 Zotero sync → review → 주제분류 → narrative/main·category timeline → topic index까지 실행 (Cloudflare 배포 제외)
 - ✅ py312 자동 준비 — 지정 Python 우선, 없으면 관리형 venv/relocatable Python으로 bootstrap

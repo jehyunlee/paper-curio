@@ -5,6 +5,13 @@ pref("extensions.zotero.__addonRef__.ANTHROPIC_API_KEY", "")
 pref("extensions.zotero.__addonRef__.OPENAI_API_KEY", "")
 pref("extensions.zotero.__addonRef__.GEMINI_API_KEY", "")
 
+// Citedby 문헌 DB 키 — Zotero.app 을 Finder 로 띄우면 셸 환경변수를 물려받지
+// 못하므로, 환경변수가 없을 때 쓸 pref 폴백이 반드시 필요하다.
+pref("extensions.zotero.__addonRef__.SCOPUS_API_KEY", "")
+pref("extensions.zotero.__addonRef__.SCOPUS_INST_TOKEN", "")
+pref("extensions.zotero.__addonRef__.S2_API_KEY", "")
+pref("extensions.zotero.__addonRef__.OPENALEX_EMAIL", "")
+
 // Default models per provider (paper-curation과 동일 기준)
 // Anthropic: paper-curation WRITE_REVIEW_MODEL. Gemini: 주력 모델. OpenAI: 참조 모델.
 pref("extensions.zotero.__addonRef__.ANTHROPIC_MODEL", "claude-sonnet-5")

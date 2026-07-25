@@ -25,3 +25,10 @@ pref-python-path-hint = Python interpreter used to call paper-curation's origina
 pref-chat = Chat
 pref-chat-lang = Answer language
 pref-chat-lang-hint = Language the AI answers in, for AI Chat / Comparative Chat. You can also toggle it per-window with the EN/KO button in the chat header.
+
+pref-litdb = Literature DBs (Citedby)
+pref-litdb-hint = Priority: environment variable → this field. Launching Zotero from Finder does not inherit terminal environment variables, so set them here in that case. All optional — a missing key only drops that source.
+pref-scopus-key = Scopus API Key
+pref-scopus-token = Scopus Inst Token
+pref-s2-key = Semantic Scholar Key
+pref-openalex-email = OpenAlex/Crossref Email

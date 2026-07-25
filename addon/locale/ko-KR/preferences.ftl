@@ -25,3 +25,10 @@ pref-python-path-hint = paper-curation 원본 함수(figure 추출 등)를 호�
 pref-chat = 대화
 pref-chat-lang = 답변 언어
 pref-chat-lang-hint = AI Chat / Comparative Chat에서 AI가 답변하는 언어입니다. 채팅 창 상단의 EN/KO 버튼으로 창마다 즉시 전환할 수도 있습니다.
+
+pref-litdb = 문헌 DB (Citedby)
+pref-litdb-hint = 우선순위: 환경변수 → 이 입력칸. Zotero 를 Finder 로 실행하면 터미널 환경변수가 전달되지 않으므로, 그 경우 여기에 입력해야 합니다. 전부 선택 사항이며 없으면 해당 소스만 빠집니다.
+pref-scopus-key = Scopus API Key
+pref-scopus-token = Scopus Inst Token
+pref-s2-key = Semantic Scholar Key
+pref-openalex-email = OpenAlex/Crossref Email

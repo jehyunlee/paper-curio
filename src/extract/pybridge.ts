@@ -1,5 +1,13 @@
 import { getPref, getPrefStr, setPref } from "../utils/prefs"
-import { getAnthropicKey, getGeminiKey, getOpenAIKey } from "../utils/env"
+import {
+  getAnthropicKey,
+  getGeminiKey,
+  getOpenAIKey,
+  getScopusKey,
+  getScopusInstToken,
+  getS2Key,
+  getOpenAlexEmail,
+} from "../utils/env"
 import { joinPath, writeText } from "../utils/fs"
 import { fs as log } from "../utils/loggers"
 import type { PaperMeta } from "../apis/zotero/item"
@@ -1210,6 +1218,22 @@ export async function citedbyViaBridge(
     }
     const o = getOpenAIKey()
     if (o) env.OPENAI_API_KEY = o
+
+    // 문헌 DB 키 — 없으면 그 소스만 조용히 빠진다.
+    // Zotero.app 을 Finder 로 띄우면 셸 환경변수를 물려받지 못하므로,
+    // getScopusKey() 등이 pref 폴백까지 훑는다. 이걸 안 넘기면 터미널에서는
+    // 되던 Scopus 가 Zotero 경로에서만 조용히 죽는다.
+    const sc = getScopusKey()
+    if (sc) env.SCOPUS_API_KEY = sc
+    const it = getScopusInstToken()
+    if (it) env.SCOPUS_INST_TOKEN = it
+    const s2 = getS2Key()
+    if (s2) env.S2_API_KEY = s2
+    const mail = getOpenAlexEmail()
+    if (mail) {
+      env.OPENALEX_EMAIL = mail
+      env.CROSSREF_EMAIL = mail
+    }
     const r = await runPython(
       [
         script,

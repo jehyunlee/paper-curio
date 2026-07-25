@@ -144,12 +144,14 @@ async function buildExistingKeys(libraryID: number): Promise<{
  * 인용논문을 Zotero 에 등록한다.
  *
  * @param papers    citedby 가 낸 papers JSON (서지 필드만 추려진 형태)
- * @param collectionID 넣을 컬렉션. 없으면 라이브러리 루트.
  * @param onProgress  (done, total) 진행 콜백
+ *
+ * NOTE: **컬렉션을 지정하지 않는다.** 인용논문은 내가 고른 논문이 아니라 검색
+ * 결과라, 원논문이 속한 컬렉션(예: "AI Literacy")에 섞이면 그 컬렉션의 의미가
+ * 오염된다. 라이브러리 루트(Unfiled)에 두고 분류는 사용자가 판단한다.
  */
 export async function registerCitingPapers(
   papers: CitingPaper[],
-  collectionID?: number,
   onProgress?: (done: number, total: number) => void,
 ): Promise<RegisterResult> {
   const libraryID = (Zotero as any).Libraries.userLibraryID
@@ -209,7 +211,6 @@ export async function registerCitingPapers(
       if (extras.length) item.setField("extra", extras.join("\n"))
 
       if (p.authors?.length) item.setCreators(p.authors.map(toCreator))
-      if (collectionID) item.addToCollection(collectionID)
 
       await item.saveTx()
 

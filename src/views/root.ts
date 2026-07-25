@@ -682,7 +682,7 @@ async function onCitedbyCommand(): Promise<void> {
     }
   }
 
-  await maybeRegisterCitingPapers(r.papersJson ?? "", item)
+  await maybeRegisterCitingPapers(r.papersJson ?? "")
 }
 
 /** 주제 입력 프롬프트. 취소면 null, 비우면 "" (필터 없이 전체). */
@@ -705,12 +705,11 @@ function promptForCitedbyTopic(): string | null {
  *
  * 등록하면 기존 리뷰 파이프라인(`run_full --mode curate --source zotero`)이
  * 그대로 이어받는다 — citedby → Zotero → 리뷰 루프가 닫힌다.
- * DOI/arXiv/제목 기준 중복은 건너뛴다.
+ * DOI/arXiv/제목 기준 중복은 건너뛴다. **컬렉션은 지정하지 않는다** — 인용논문은
+ * 검색 결과이지 내가 고른 논문이 아니라, 원논문의 컬렉션에 섞으면 그 컬렉션의
+ * 의미가 오염된다. 라이브러리 루트(Unfiled)에 두고 분류는 사용자가 판단한다.
  */
-async function maybeRegisterCitingPapers(
-  papersJson: string,
-  seedItem: Zotero.Item,
-): Promise<void> {
+async function maybeRegisterCitingPapers(papersJson: string): Promise<void> {
   if (!papersJson) return
   let papers: CitingPaper[] = []
   try {
@@ -729,14 +728,6 @@ async function maybeRegisterCitingPapers(
   )
   if (!confirmed) return
 
-  // 원논문이 속한 컬렉션에 넣는다 (여러 개면 첫 번째). 없으면 라이브러리 루트.
-  let collectionID: number | undefined
-  try {
-    const ids = seedItem.getCollections?.() as number[] | undefined
-    if (ids?.length) collectionID = ids[0]
-  } catch {
-    /* 루트로 폴백 */
-  }
 
   const pw = toast(config.addonName)
     .createLine({
@@ -749,7 +740,7 @@ async function maybeRegisterCitingPapers(
     .show()
 
   try {
-    const res = await registerCitingPapers(papers, collectionID, (done, total) => {
+    const res = await registerCitingPapers(papers, (done, total) => {
       if (done % 10 === 0 || done === total) {
         pw.changeLine({
           type: "default",

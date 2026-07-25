@@ -99,3 +99,19 @@ pc-status-ok = ✓ paper-curation 연동됨: { $path } — 연관논문 분석·
 pc-status-missing = paper-curation 미연동 — AI Chat / Comparative Chat은 그대로 동작합니다. 아래에 경로를 지정하면 연관논문 분석·리뷰 생성·그림 표시가 활성화됩니다.
 itemmenu-chat-tip = Chat with the selection only
 itemmenu-comparative-study-tip = Semantic-connected papers are engaged in comparison
+
+# ── Citedby (인용논문 분석) ──
+itemmenu-citedby = paper-curation Citedby — 이 논문을 인용한 논문 분석
+itemmenu-citedby-tip = Find and analyze papers citing this one
+citedby-topic-title = Citedby — 주제 필터
+citedby-topic-msg = 인용논문을 걸러낼 주제를 입력하세요 (비우면 전체). 주제를 넣으면 LLM 이 관련 논문만 추려 5W1H 요약까지 만듭니다.
+citedby-register-title = Citedby — Zotero 등록
+citedby-register-msg = 분석된 인용논문 { $n }편을 Zotero 에 등록할까요? 이미 있는 논문(DOI·arXiv·제목 기준)은 건너뜁니다.
+toast-citedby-select-one = 논문을 한 편만 선택하세요.
+toast-citedby-no-doi = DOI 가 없어 인용논문을 조회할 수 없습니다: { $title }
+toast-citedby-running = 인용논문 분석 중: { $doi } … (소스 수집·분석에 수 분 소요)
+toast-citedby-done = Citedby 완료 — 인용논문 { $total }편 중 { $matched }편 리포트 ({ $sec }초). 브라우저에서 엽니다
+toast-citedby-fail = Citedby 실패: { $err }
+toast-citedby-register-running = Zotero 등록 중… { $done }/{ $total }
+toast-citedby-register-done = Zotero 등록 완료 — 추가 { $added } / 중복 { $skipped } / 실패 { $failed }
+toast-citedby-register-fail = Zotero 등록 실패: { $err }

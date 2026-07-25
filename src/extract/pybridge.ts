@@ -1,5 +1,5 @@
 import { getPref, getPrefStr, setPref } from "../utils/prefs"
-import { getAnthropicKey, getGeminiKey } from "../utils/env"
+import { getAnthropicKey, getGeminiKey, getOpenAIKey } from "../utils/env"
 import { joinPath, writeText } from "../utils/fs"
 import { fs as log } from "../utils/loggers"
 import type { PaperMeta } from "../apis/zotero/item"
@@ -505,6 +505,42 @@ def main():
             print(json.dumps(CP.run_compare(slugs))); return
         except SystemExit as e:
             print(json.dumps({"ok": False, "reason": str(e)})); return
+        except Exception as e:
+            print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
+
+    if cmd == "citedby":
+        # DOI 하나로 인용논문을 수집·분석해 자기완결 HTML 문서(+CSV+papers JSON)를
+        # 만든다. run_citedby.py 가 --json 으로 마지막 줄에 결과 JSON 을 내므로
+        # 그대로 통과시킨다. 수집이 수 분 걸릴 수 있어 타임아웃을 넉넉히 잡는다.
+        doi = sys.argv[3]
+        topic = sys.argv[4] if len(sys.argv) > 4 else ""
+        slug = sys.argv[5] if len(sys.argv) > 5 else ""
+        sources = sys.argv[6] if len(sys.argv) > 6 else ""
+        sp = os.path.join(pc_root, "pipeline", "run_citedby.py")
+        if not os.path.exists(sp):
+            print(json.dumps({"ok": False, "reason": "no_run_citedby"})); return
+        argv = [sys.executable, "-u", sp, "--doi", doi, "--json"]
+        if topic:
+            argv += ["--topic", topic]
+        if slug:
+            argv += ["--slug", slug]
+        if sources:
+            argv += ["--sources", sources]
+        env = dict(os.environ)
+        env["PYTHONUTF8"] = "1"
+        env["PAPER_CURATION_PY312"] = sys.executable
+        try:
+            cp = subprocess.run(argv, cwd=pc_root, capture_output=True,
+                                text=True, timeout=3600, env=env)
+            out = (cp.stdout or "").strip().splitlines()
+            for line in reversed(out):
+                line = line.strip()
+                if line.startswith("{"):
+                    print(line); return
+            tail = ((cp.stdout or "") + " " + (cp.stderr or ""))[-600:]
+            print(json.dumps({"ok": False, "code": cp.returncode, "tail": tail})); return
+        except subprocess.TimeoutExpired:
+            print(json.dumps({"ok": False, "reason": "timeout"})); return
         except Exception as e:
             print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
 
@@ -1128,6 +1164,85 @@ export async function compareViaBridge(
     return { ok: false, reason: String(j?.reason ?? r.stderr.slice(-300) ?? "unknown") }
   } catch (e) {
     log("compareViaBridge 예외", e)
+    return { ok: false, reason: String(e) }
+  }
+}
+
+export interface CitedbyResult {
+  ok: boolean
+  reason?: string
+  doi?: string
+  topic?: string
+  matched?: number
+  total?: number
+  elapsedSec?: number
+  /** 자기완결 HTML 리포트 절대경로 — 브라우저로 열면 [PDF 출력] 버튼이 있다. */
+  report?: string
+  csv?: string
+  /** 인용논문 서지 JSON 절대경로 — Zotero 일괄 등록이 읽는다. */
+  papersJson?: string
+}
+
+/**
+ * 인용논문 분석 — run_citedby.py. DOI 하나로 OpenAlex/Scopus/S2/arXiv 를 훑어
+ * 자기완결 HTML 리포트(+CSV+papers JSON)를 만든다. 내 Zotero 라이브러리에 있는
+ * 논문은 리포트에서 zotero://open-pdf 로 바로 열린다.
+ *
+ * 수 분 걸릴 수 있다(브리지 타임아웃 1h). topic 을 주면 LLM 주제 필터 + 5W1H
+ * 요약까지 수행한다.
+ */
+export async function citedbyViaBridge(
+  doi: string,
+  pcRoot: string,
+  opts: { topic?: string; slug?: string; sources?: string } = {},
+): Promise<CitedbyResult> {
+  if (!pcRoot) return { ok: false, reason: "no_paper_curation" }
+  if (!doi.trim()) return { ok: false, reason: "no_doi" }
+  try {
+    const script = await ensureBridgeScript()
+    const env: Record<string, string> = {}
+    const a = getAnthropicKey()
+    if (a) env.ANTHROPIC_API_KEY = a
+    const g = getGeminiKey()
+    if (g) {
+      env.GOOGLE_API_KEY = g
+      env.GEMINI_API_KEY = g
+    }
+    const o = getOpenAIKey()
+    if (o) env.OPENAI_API_KEY = o
+    const r = await runPython(
+      [
+        script,
+        pcRoot,
+        "citedby",
+        doi.trim(),
+        opts.topic ?? "",
+        opts.slug ?? "",
+        opts.sources ?? "",
+      ],
+      env,
+    )
+    const j = lastJson(r.stdout)
+    if (r.ok && j?.ok) {
+      return {
+        ok: true,
+        doi: String(j.doi ?? doi),
+        topic: String(j.topic ?? ""),
+        matched: Number(j.matched ?? 0),
+        total: Number(j.total ?? 0),
+        elapsedSec: Number(j.elapsed_sec ?? 0),
+        report: String(j.report ?? ""),
+        csv: String(j.csv ?? ""),
+        papersJson: String(j.papers_json ?? ""),
+      }
+    }
+    log("citedby 브리지 실패", `code=${r.code}`, String(j?.reason ?? ""), r.stderr.slice(0, 200))
+    return {
+      ok: false,
+      reason: String(j?.reason ?? j?.tail ?? r.stderr.slice(-300) ?? "unknown"),
+    }
+  } catch (e) {
+    log("citedbyViaBridge 예외", e)
     return { ok: false, reason: String(e) }
   }
 }

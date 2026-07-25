@@ -10,10 +10,13 @@ import {
   compareViaBridge,
   runFullViaBridge,
   registerCollectionViaBridge,
+  citedbyViaBridge,
 } from "../extract/pybridge"
 import { topicForCollection, resolveCollectionTopic } from "../core/categorize"
 import { findExisting } from "../core/papers-index"
-import { joinPath, pathExists } from "../utils/fs"
+import { joinPath, pathExists, readJson } from "../utils/fs"
+import { registerCitingPapers } from "../apis/zotero/register"
+import type { CitingPaper } from "../apis/zotero/register"
 import { openChatForSelection, openComparativeStudy } from "./chat"
 
 declare const Services: any
@@ -24,6 +27,7 @@ const COMPARE_ID = `${config.addonRef}-itemmenu-compare`
 const OPEN_REVIEW_ID = `${config.addonRef}-itemmenu-open-review`
 const CHAT_ID = `${config.addonRef}-itemmenu-chat`
 const COMPARE_STUDY_ID = `${config.addonRef}-itemmenu-compare-study`
+const CITEDBY_ID = `${config.addonRef}-itemmenu-citedby`
 const DEPLOY_ID = `${config.addonRef}-collectionmenu-deploy`
 const RUN_FULL_ID = `${config.addonRef}-collectionmenu-runfull`
 const COMPARE_MAX = 6
@@ -76,11 +80,21 @@ export function registerItemMenu(): void {
       void onCompareCommand()
     },
   })
+  ztoolkit.Menu.register("item", {
+    tag: "menuitem",
+    id: CITEDBY_ID,
+    label: getString("itemmenu-citedby"),
+    icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
+    commandListener: () => {
+      void onCitedbyCommand()
+    },
+  })
   // 메뉴 hover 말풍선 — XUL은 menupopup 내부의 tooltiptext를 표시하지 않는다
   // (메뉴 위에서는 툴팁 리스너가 억제됨). Firefox 북마크 메뉴처럼 전용
   // <tooltip> 팝업을 하이라이트 이벤트에 맞춰 직접 연다.
   attachMenuTip(CHAT_ID, getString("itemmenu-chat-tip"))
   attachMenuTip(COMPARE_STUDY_ID, getString("itemmenu-comparative-study-tip"))
+  attachMenuTip(CITEDBY_ID, getString("itemmenu-citedby-tip"))
   log("item menu 등록 완료")
 }
 
@@ -179,6 +193,7 @@ export function unregisterItemMenu(): void {
     ztoolkit.Menu.unregister(CHAT_ID)
     ztoolkit.Menu.unregister(COMPARE_STUDY_ID)
     ztoolkit.Menu.unregister(COMPARE_ID)
+    ztoolkit.Menu.unregister(CITEDBY_ID)
     ztoolkit.Menu.unregister(SEP_ID)
     Zotero.getMainWindow()?.document?.getElementById("papercurio-menu-tip")?.remove()
   } catch {
@@ -561,6 +576,206 @@ async function onCompareCommand(): Promise<void> {
       progress: 100,
     })
     log("onCompareCommand 예외", e)
+  }
+  pw.startCloseTimer(8000)
+}
+
+/**
+ * 선택 논문의 DOI 로 인용논문을 분석한다 (citedby).
+ *
+ * paper-curation 의 "같이 보면 좋은 논문"은 SPECTER2 유사도·코퍼스 내부 축이라
+ * *이 논문을 인용한 새 논문*을 구조적으로 못 찾는다. citedby 가 그 인용축·
+ * 시간축 공백을 메운다.
+ *
+ * 흐름: DOI 자동 추출(수동 입력 불필요) → 주제 입력(선택) → 브리지 실행 →
+ * 자기완결 HTML 리포트를 브라우저로 열기 → (선택) 인용논문을 Zotero 에 일괄 등록.
+ */
+async function onCitedbyCommand(): Promise<void> {
+  const targets = getSelectedRegularItems()
+  if (!(await requirePaperCuration())) return
+  if (targets.length !== 1) {
+    toast(config.addonName)
+      .createLine({
+        type: "fail",
+        text: getString("toast-citedby-select-one"),
+        progress: 100,
+      })
+      .show()
+      .startCloseTimer(4000)
+    return
+  }
+
+  const item = targets[0]
+  const doi = String(item.getField("DOI") || "").trim()
+  if (!doi) {
+    // DOI 가 없으면 인용 조회 자체가 불가능하다 (모든 소스가 DOI 기준).
+    toast(config.addonName)
+      .createLine({
+        type: "fail",
+        text: getString("toast-citedby-no-doi", {
+          args: { title: item.getDisplayTitle().slice(0, 50) },
+        }),
+        progress: 100,
+      })
+      .show()
+      .startCloseTimer(6000)
+    return
+  }
+
+  const topic = promptForCitedbyTopic()
+  if (topic === null) return // 사용자 취소
+
+  const target = await resolveOutputTarget()
+  // 코퍼스에 이 논문의 리뷰가 이미 있으면 그 폴더 아래에 산출물을 모은다.
+  let slug = ""
+  try {
+    const entry = await findExisting(target.papersDir, {
+      doi,
+      zoteroKey: item.key,
+      title: item.getDisplayTitle(),
+    })
+    slug = entry?.slug ?? ""
+  } catch {
+    /* 슬러그를 못 찾아도 진행 — docs/citedby/ 로 떨어진다 */
+  }
+
+  const pw = toast(config.addonName)
+    .createLine({
+      type: "default",
+      text: getString("toast-citedby-running", { args: { doi } }),
+      progress: 20,
+    })
+    .show()
+
+  const r = await citedbyViaBridge(doi, target.root, { topic, slug })
+
+  if (!r.ok) {
+    pw.changeLine({
+      type: "fail",
+      text: getString("toast-citedby-fail", {
+        args: { err: String(r.reason ?? "").slice(0, 160) },
+      }),
+      progress: 100,
+    })
+    pw.startCloseTimer(8000)
+    return
+  }
+
+  pw.changeLine({
+    type: "success",
+    text: getString("toast-citedby-done", {
+      args: {
+        matched: r.matched ?? 0,
+        total: r.total ?? 0,
+        sec: Math.round(r.elapsedSec ?? 0),
+      },
+    }),
+    progress: 100,
+  })
+  pw.startCloseTimer(6000)
+
+  if (r.report) {
+    try {
+      ;(Zotero as any).launchFile(r.report)
+    } catch (e) {
+      log("citedby 리포트 열기 실패", e)
+    }
+  }
+
+  await maybeRegisterCitingPapers(r.papersJson ?? "", item)
+}
+
+/** 주제 입력 프롬프트. 취소면 null, 비우면 "" (필터 없이 전체). */
+function promptForCitedbyTopic(): string | null {
+  const input = { value: "" }
+  const ok = Services.prompt.prompt(
+    Zotero.getMainWindow(),
+    getString("citedby-topic-title"),
+    getString("citedby-topic-msg"),
+    input,
+    null,
+    { value: false },
+  )
+  if (!ok) return null
+  return String(input.value || "").trim()
+}
+
+/**
+ * 분석된 인용논문을 Zotero 에 등록할지 묻고, 승낙하면 일괄 등록한다.
+ *
+ * 등록하면 기존 리뷰 파이프라인(`run_full --mode curate --source zotero`)이
+ * 그대로 이어받는다 — citedby → Zotero → 리뷰 루프가 닫힌다.
+ * DOI/arXiv/제목 기준 중복은 건너뛴다.
+ */
+async function maybeRegisterCitingPapers(
+  papersJson: string,
+  seedItem: Zotero.Item,
+): Promise<void> {
+  if (!papersJson) return
+  let papers: CitingPaper[] = []
+  try {
+    if (!(await pathExists(papersJson))) return
+    papers = await readJson<CitingPaper[]>(papersJson, [])
+  } catch (e) {
+    log("citedby papers JSON 읽기 실패", e)
+    return
+  }
+  if (!papers.length) return
+
+  const confirmed = Services.prompt.confirm(
+    Zotero.getMainWindow(),
+    getString("citedby-register-title"),
+    getString("citedby-register-msg", { args: { n: papers.length } }),
+  )
+  if (!confirmed) return
+
+  // 원논문이 속한 컬렉션에 넣는다 (여러 개면 첫 번째). 없으면 라이브러리 루트.
+  let collectionID: number | undefined
+  try {
+    const ids = seedItem.getCollections?.() as number[] | undefined
+    if (ids?.length) collectionID = ids[0]
+  } catch {
+    /* 루트로 폴백 */
+  }
+
+  const pw = toast(config.addonName)
+    .createLine({
+      type: "default",
+      text: getString("toast-citedby-register-running", {
+        args: { done: 0, total: papers.length },
+      }),
+      progress: 5,
+    })
+    .show()
+
+  try {
+    const res = await registerCitingPapers(papers, collectionID, (done, total) => {
+      if (done % 10 === 0 || done === total) {
+        pw.changeLine({
+          type: "default",
+          text: getString("toast-citedby-register-running", {
+            args: { done, total },
+          }),
+          progress: Math.min(99, Math.round((done / total) * 100)),
+        })
+      }
+    })
+    pw.changeLine({
+      type: "success",
+      text: getString("toast-citedby-register-done", {
+        args: { added: res.added, skipped: res.skipped, failed: res.failed },
+      }),
+      progress: 100,
+    })
+  } catch (e) {
+    log("citedby 등록 예외", e)
+    pw.changeLine({
+      type: "fail",
+      text: getString("toast-citedby-register-fail", {
+        args: { err: String(e).slice(0, 160) },
+      }),
+      progress: 100,
+    })
   }
   pw.startCloseTimer(8000)
 }

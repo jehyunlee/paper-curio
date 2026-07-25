@@ -99,3 +99,19 @@ pc-status-ok = ✓ paper-curation connected: { $path } — related-paper analysi
 pc-status-missing = paper-curation not connected — AI Chat / Comparative Chat work as-is. Set a path below to unlock related-paper analysis, review generation, and inline figures.
 itemmenu-chat-tip = Chat with the selection only
 itemmenu-comparative-study-tip = Semantic-connected papers are engaged in comparison
+
+# ── Citedby ──
+itemmenu-citedby = paper-curation Citedby — analyze citing papers
+itemmenu-citedby-tip = Find and analyze papers citing this one
+citedby-topic-title = Citedby — topic filter
+citedby-topic-msg = Enter a topic to filter citing papers (leave empty for all). With a topic, an LLM selects relevant papers and writes 5W1H summaries.
+citedby-register-title = Citedby — register in Zotero
+citedby-register-msg = Register { $n } citing papers into Zotero? Existing items (matched by DOI / arXiv / title) are skipped.
+toast-citedby-select-one = Select exactly one paper.
+toast-citedby-no-doi = No DOI — citing lookup is not possible: { $title }
+toast-citedby-running = Analyzing citing papers: { $doi } … (may take several minutes)
+toast-citedby-done = Citedby done — { $matched } of { $total } citing papers reported ({ $sec }s). Opening in browser
+toast-citedby-fail = Citedby failed: { $err }
+toast-citedby-register-running = Registering in Zotero… { $done }/{ $total }
+toast-citedby-register-done = Zotero registration done — added { $added } / duplicate { $skipped } / failed { $failed }
+toast-citedby-register-fail = Zotero registration failed: { $err }

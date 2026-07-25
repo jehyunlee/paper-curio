@@ -31,7 +31,14 @@ export interface CitingPaper {
   item_type?: string
   authors?: string[]
   abstract?: string
+  /** 대표 피인용수. 소스마다 세는 우주가 달라 출처·시점과 함께 기록한다. */
   citation_count?: string
+  citation_source?: string
+  citation_asof?: string
+  /** OpenAlex 연차보정 백분위 (0~1) — 같은 해·분야 대비 상위 몇 %. */
+  citation_percentile?: string
+  /** 소스별 원값 {openalex: 52, crossref: 47, s2: 104} */
+  citations_by_source?: Record<string, number>
   source?: string
   originality?: string
   topic_reason?: string
@@ -103,6 +110,43 @@ function setIfValid(item: any, field: string, value?: string): void {
   } catch {
     /* 이 아이템 타입에 없는 필드 — 무시 */
   }
+}
+
+/**
+ * 피인용수를 Extra 줄로 만든다.
+ *
+ * Zotero 스키마에는 피인용수 필드가 없어 Extra 에 적는 게 관례다
+ * (Zotero Citation Counts Manager 등이 쓰는 방식이라 검색·정렬에 걸린다).
+ *
+ * **반드시 출처와 시점을 함께 적는다.** 소스마다 세는 우주가 다르고(Scopus 는
+ * Scopus 색인만, S2 는 프리프린트까지) 숫자는 시간이 지나면 낡는다. 실측에서
+ * 같은 논문이 Crossref 47 / OpenAlex 52 / S2 104 로 갈렸다 — 출처 없는 숫자는
+ * 나중에 해석이 불가능하다.
+ */
+function citationExtraLines(p: CitingPaper): string[] {
+  const lines: string[] = []
+  const n = (p.citation_count || "").trim()
+  if (n && n !== "0") {
+    const src = (p.citation_source || "").trim()
+    const asof = (p.citation_asof || "").trim()
+    const tag = [src, asof].filter(Boolean).join(", ")
+    lines.push(tag ? `Citations: ${n} (${tag})` : `Citations: ${n}`)
+  }
+
+  // 연차보정 백분위 — 절대 피인용수는 분야·연차 편차가 커서 단독으로는
+  // 오독하기 쉽다. "같은 해·분야 대비 상위 몇 %" 가 해석이 바로 된다.
+  const pctRaw = parseFloat(p.citation_percentile || "")
+  if (!Number.isNaN(pctRaw)) {
+    const pct = pctRaw <= 1 ? pctRaw * 100 : pctRaw
+    lines.push(`Citation percentile: ${pct.toFixed(1)} (OpenAlex, 연차보정)`)
+  }
+
+  // 소스별 원값 — 나중에 "이 숫자 뭐 기준이냐" 를 되묻지 않게 남긴다.
+  const by = p.citations_by_source || {}
+  const parts = Object.entries(by).map(([k, v]) => `${k} ${v}`)
+  if (parts.length > 1) lines.push(`Citations by source: ${parts.join(" / ")}`)
+
+  return lines
 }
 
 /** 저자 문자열 → Zotero creator. "Lastname, F." 와 "First Last" 를 모두 흡수. */
@@ -265,6 +309,8 @@ export async function registerCitingPapers(
       const extras: string[] = []
       if (aid) extras.push(`arXiv:${aid}`)
       if (p.publisher) extras.push(`Publisher: ${p.publisher}`)
+      const cites = citationExtraLines(p)
+      if (cites.length) extras.push(...cites)
       if (p.source) extras.push(`citedby-source: ${p.source}`)
       if (extras.length) setIfValid(item, "extra", extras.join("\n"))
 

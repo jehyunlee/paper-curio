@@ -1300,6 +1300,9 @@ export async function citedbyViaBridge(
         matched: Number(j.matched ?? 0),
         total: Number(j.total ?? 0),
         elapsedSec: Number(j.elapsed_sec ?? 0),
+        // 이걸 빠뜨리면 root.ts 의 `if (r.url)` 이 항상 거짓이 되어 리포트가
+        // file:// 로 열린다 — Deep Research 패널이 CORS 로 죽는 그 경로다.
+        url: String(j.url ?? ""),
         report: String(j.report ?? ""),
         csv: String(j.csv ?? ""),
         papersJson: String(j.papers_json ?? ""),

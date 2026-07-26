@@ -90,7 +90,7 @@ paper-curation은 표준으로 **py312 환경**에서 돕니다. 같은 인터�
 
 이미 review가 있는 논문은 **기본 건너뜀**(비파괴). `Settings → Overwrite existing`을 켜야 덮어씁니다(이때도 분류 메타는 보존). Paper Curio가 직접 만든 review는 항상 재생성됩니다.
 
-## 범위 (v0.9.0)
+## 범위 (v0.9.1)
 
 - ✅ 우클릭 단일/다중 처리 + 진행 윈도우
 - ✅ 우클릭 `paper-curation Review HTML 열기` — 이미 생성된 리뷰(index.html)를 브라우저로 바로 오픈 (생성 안 함)

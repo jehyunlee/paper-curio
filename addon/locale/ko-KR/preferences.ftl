@@ -1,5 +1,18 @@
+pref-llm-backend = LLM 백엔드
+pref-llm-backend-hint = API SDK 또는 로컬 로그인 세션을 사용하는 CLI를 선택합니다. CLI 모드는 API 키가 필요하지 않으며, 해당 CLI에 미리 로그인되어 있어야 합니다.
+pref-llm-backend-select = 호출 방식
+pref-backend-api =
+    .label = API 키 (Anthropic / OpenAI / Gemini)
+pref-backend-claude =
+    .label = Claude CLI (claude -p)
+pref-backend-codex =
+    .label = Codex CLI (codex exec)
+pref-claude-cli-path = Claude 실행 파일
+pref-codex-cli-path = Codex 실행 파일
+pref-cli-path-hint = 비워두면 ~/.local/bin, Homebrew 경로 등에서 자동 탐색합니다. Zotero가 찾지 못할 때만 절대 경로를 입력하세요.
+
 pref-api-keys = API 키
-pref-api-keys-hint = 우선순위: 환경변수 → 이 입력칸. Anthropic → OpenAI → Gemini 순으로 시도합니다. 환경변수로 설정했다면 비워두세요.
+pref-api-keys-hint = 위에서 API 키 방식을 선택했을 때 사용합니다. 우선순위: 환경변수 → 이 입력칸. Anthropic → OpenAI → Gemini 순으로 시도합니다.
 pref-anthropic-key = Anthropic API Key
 pref-openai-key = OpenAI API Key
 pref-gemini-key = Gemini API Key

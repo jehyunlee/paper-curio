@@ -1,5 +1,18 @@
+pref-llm-backend = LLM Backend
+pref-llm-backend-hint = Choose an API SDK or a CLI that uses your local login session. CLI mode needs no API key, but its CLI must already be authenticated.
+pref-llm-backend-select = Invocation method
+pref-backend-api =
+    .label = API keys (Anthropic / OpenAI / Gemini)
+pref-backend-claude =
+    .label = Claude CLI (claude -p)
+pref-backend-codex =
+    .label = Codex CLI (codex exec)
+pref-claude-cli-path = Claude executable
+pref-codex-cli-path = Codex executable
+pref-cli-path-hint = Leave blank to search ~/.local/bin and common Homebrew locations. Set an absolute path only when Zotero cannot find the CLI.
+
 pref-api-keys = API Keys
-pref-api-keys-hint = Priority: environment variable → this field. Tried in order Anthropic → OpenAI → Gemini. Leave blank if set via env var.
+pref-api-keys-hint = Used when API keys is selected above. Priority: environment variable → this field. Tried in order Anthropic → OpenAI → Gemini.
 pref-anthropic-key = Anthropic API Key
 pref-openai-key = OpenAI API Key
 pref-gemini-key = Gemini API Key

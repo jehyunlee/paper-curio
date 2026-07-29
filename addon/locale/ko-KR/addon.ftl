@@ -15,7 +15,7 @@ toast-compare-fail = 비교 실패: { $err }
 
 # 토스트 — 가드
 toast-no-items = 선택된 논문(regular item)이 없습니다.
-toast-no-provider = LLM API key가 설정되지 않았습니다. Settings → Paper Curio에서 Anthropic / OpenAI / Gemini 중 하나를 입력하세요.
+toast-no-provider = 사용할 LLM이 없습니다. Settings → Paper Curio에서 API 키 또는 Claude/Codex CLI를 설정하세요.
 
 # 토스트 — 단일
 toast-running = 리뷰 생성 중: { $title }
@@ -64,15 +64,17 @@ chat-send = 보내기
 chat-close = 닫기
 chat-thinking = 생성 중…
 chat-empty-reply = (빈 응답)
-chat-greeting = 논문 "{ $title }"에 대해 무엇이든 물어보세요 — PDF 전문을 컨텍스트로 답합니다. (유료 API 호출이며, 상단에 예상 비용이 누적 표시됩니다.)
+chat-greeting = 논문 "{ $title }"에 대해 무엇이든 물어보세요 — PDF 전문을 컨텍스트로 답합니다.
 chat-no-pdf-note = PDF 텍스트를 추출하지 못했습니다 — 메타데이터만으로 답합니다.
 chat-cost = 유료 API · 예상 ${ $cost } · in { $in } / out { $out } tok
 chat-cost-title = 모델 공시 단가 기반 추정치입니다. 실제 청구액과 다를 수 있습니다.
+chat-cost-cli = 로컬 CLI 세션
+chat-cost-cli-title = 선택한 Claude/Codex CLI의 로그인 세션을 사용합니다. Paper Curio는 API 비용과 토큰 사용량을 알 수 없습니다.
 
 # Comparative Chat(이미 연결된 관련 연구) + 다중 논문 대화
 itemmenu-comparative-study = paper-curation AI Chat — multiple (with connections ?⃝)
 chat-title-multi = AI 대화 — 논문 { $n }편
-chat-greeting-multi = 선택한 { $n }편의 논문에 대해 무엇이든 물어보세요 — 각 PDF 전문을 컨텍스트로 답합니다. (유료 API 호출이며, 상단에 예상 비용이 누적 표시됩니다.)
+chat-greeting-multi = 선택한 { $n }편의 논문에 대해 무엇이든 물어보세요 — 각 PDF 전문을 컨텍스트로 답합니다.
 toast-chat-ready-multi = 논문 { $n }편 준비 완료 — 총 { $chars }자
 toast-compare-gather-related = 이미 연결된 관련 연구를 불러오는 중…
 toast-compare-related-found = 연결된 관련 연구 { $n }편 로드

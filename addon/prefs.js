@@ -5,6 +5,11 @@ pref("extensions.zotero.__addonRef__.ANTHROPIC_API_KEY", "")
 pref("extensions.zotero.__addonRef__.OPENAI_API_KEY", "")
 pref("extensions.zotero.__addonRef__.GEMINI_API_KEY", "")
 
+// LLM backend. API SDK가 기본이며, 로컬 로그인 세션을 쓰는 CLI도 선택 가능.
+pref("extensions.zotero.__addonRef__.LLM_BACKEND", "api")
+pref("extensions.zotero.__addonRef__.CLAUDE_CLI_PATH", "")
+pref("extensions.zotero.__addonRef__.CODEX_CLI_PATH", "")
+
 // Citedby 문헌 DB 키 — Zotero.app 을 Finder 로 띄우면 셸 환경변수를 물려받지
 // 못하므로, 환경변수가 없을 때 쓸 pref 폴백이 반드시 필요하다.
 pref("extensions.zotero.__addonRef__.SCOPUS_API_KEY", "")

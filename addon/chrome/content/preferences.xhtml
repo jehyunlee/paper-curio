@@ -3,8 +3,64 @@
 </linkset>
 <vbox
   id="zotero-prefpane-__addonRef__"
-  onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', {window})"
+  onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window })"
 >
+  <groupbox>
+    <label><html:h2 data-l10n-id="pref-llm-backend"></html:h2></label>
+    <description
+      data-l10n-id="pref-llm-backend-hint"
+      style="opacity: 0.7; font-size: 11px"
+    ></description>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-llm-backend-select"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <menulist
+        native="true"
+        preference="extensions.zotero.__addonRef__.LLM_BACKEND"
+      >
+        <menupopup>
+          <menuitem value="api" data-l10n-id="pref-backend-api"></menuitem>
+          <menuitem
+            value="claude-cli"
+            data-l10n-id="pref-backend-claude"
+          ></menuitem>
+          <menuitem
+            value="codex-cli"
+            data-l10n-id="pref-backend-codex"
+          ></menuitem>
+        </menupopup>
+      </menulist>
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-claude-cli-path"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <html:input
+        type="text"
+        style="flex: 1"
+        preference="extensions.zotero.__addonRef__.CLAUDE_CLI_PATH"
+      ></html:input>
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-codex-cli-path"
+        style="display: flex; align-items: center; min-width: 12em"
+      ></label>
+      <html:input
+        type="text"
+        style="flex: 1"
+        preference="extensions.zotero.__addonRef__.CODEX_CLI_PATH"
+      ></html:input>
+    </hbox>
+    <description
+      data-l10n-id="pref-cli-path-hint"
+      style="opacity: 0.7; font-size: 11px"
+    ></description>
+  </groupbox>
+
   <groupbox>
     <label><html:h2 data-l10n-id="pref-api-keys"></html:h2></label>
     <description

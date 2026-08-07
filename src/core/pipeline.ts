@@ -173,6 +173,8 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
   // 8) 연관 논문 — 원본 specter2/compute_related/generate/sync(py312) 우선.
   //    캐시 있는 paper-curation 토픽(ai4s 등)만 동작 → 그 외/실패 시 TS 단일논문 LLM 폴백.
   let connections: ConnItem[] = []
+  const idx = await readPapersIndex(target.papersDir)
+  const titleBySlug = new Map(idx.map((e) => [e.slug, e.title]))
   const bridgeConns = await generateConnectionsViaBridge(
     primaryTopic,
     slug,
@@ -180,15 +182,45 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     { ...meta, essence: parsed.essence },
     target.root,
   )
-  if (bridgeConns !== null) {
-    // 원본 반환엔 title 없음 → 인덱스에서 보강
-    const idx = await readPapersIndex(target.papersDir)
-    const titleBySlug = new Map(idx.map((e) => [e.slug, e.title]))
-    connections = bridgeConns.map((c) => ({
+
+  // An empty bridge response is not a successful connection result. It can be
+  // caused by a transient model/cache failure and must not erase a previously
+  // generated `_pc_conn_sync.json` or overwrite index.html with zero links.
+  let recovered: ConnItem[] = []
+  if (!bridgeConns?.length) {
+    try {
+      const raw = await readText(joinPath(slugDir, "_pc_conn_sync.json"))
+      const saved = JSON.parse(raw || "[]") as Array<Partial<ConnItem>>
+      recovered = saved
+        .filter((c) => !!c.slug && titleBySlug.has(c.slug))
+        .map((c) => ({
+          relation: c.relation || "alternative",
+          slug: c.slug!,
+          title: c.title || titleBySlug.get(c.slug!) || c.slug!,
+          reason: c.reason || "",
+        }))
+      if (recovered.length) {
+        log(`connections 저장본 복구: ${recovered.length}건`)
+      }
+    } catch {
+      recovered = []
+    }
+  }
+
+  const primaryConns = bridgeConns?.length ? bridgeConns : recovered
+  if (primaryConns.length) {
+    connections = primaryConns.map((c) => ({
       ...c,
       title: c.title || titleBySlug.get(c.slug) || c.slug,
     }))
-    log(`connections 원본(${primaryTopic}): ${connections.length}건`)
+    log(`connections 원본/복구(${primaryTopic}): ${connections.length}건`)
+    // Re-sync recovered edges because their prior graph write may have failed.
+    if (recovered.length) {
+      const synced = await syncConnectionsViaBridge(
+        primaryTopic, slug, slugDir, connections, target.root,
+      )
+      log(`connections 복구 sync ${synced ? "OK" : "skip"}`)
+    }
   } else {
     try {
       const candidates = await buildConnectionCandidates(target.papersDir, {
@@ -210,7 +242,6 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
       log(`connections TS 폴백: ${connections.length}건`)
       // 브리지(LLM) 경로가 실패해 폴백으로 왔으므로, 폴백 연결을 토픽
       // _paper_connections.json + global 에 직접 영속화한다(연결 갭 방지).
-      // 브리지 성공 경로는 내부에서 이미 sync 하므로 여기서만 보강.
       try {
         const synced = await syncConnectionsViaBridge(
           primaryTopic, slug, slugDir, connections, target.root,

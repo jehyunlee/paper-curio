@@ -24,6 +24,7 @@ import {
   extractTextViaBridge,
   writeReviewViaBridge,
   extractOriginalityViaBridge,
+  writeSidecarViaBridge,
   generateConnectionsViaBridge,
   syncConnectionsViaBridge,
   injectFrontmatterViaBridge,
@@ -162,6 +163,22 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     }
   } catch (e) {
     log("originality.md 생성 실패(무시)", e)
+  }
+
+  // 7.5) bibliography.json — 리뷰 시점의 Zotero 레코드를 논문 폴더에 남긴다.
+  //      paper-curation 의 build_bibliography_db 는 사이드카가 있으면 Zotero
+  //      라이브러리 전체 페이징(~200초)을 건너뛴다. text.md 해시를 함께 기록하므로
+  //      review.md/text.md 가 모두 쓰인 뒤에 호출해야 한다.
+  try {
+    const ok = await writeSidecarViaBridge(
+      slugDir,
+      { ...meta, key: meta.key },
+      target.root,
+      pdfPath || undefined,
+    )
+    if (!ok) log("bibliography.json 사이드카 미생성(무시)")
+  } catch (e) {
+    log("bibliography.json 사이드카 생성 실패(무시)", e)
   }
 
   // topic은 Zotero collection 기반(캐노니컬: paper-curation config.json 역매핑).

@@ -68,6 +68,7 @@ async function pythonPath(): Promise<string> {
  *  - text    <pdf> <slug_dir>   → run_update_force.extract_text
  *  - review  <slug_dir> <meta_json> → _to_item(meta) + run_update_force.write_review (text.md·figures 사용)
  *  - originality <slug_dir> <meta_json> → originality_extractor._extract_rule_based
+ *  - sidecar <slug_dir> <meta_json> [pdf] → run_update_force.write_bibliography_sidecar
  *  - connections <slug> <slug_dir> <topic> <meta_json> → specter2/compute_related/generate/sync
  *  - inject_frontmatter <slug> <topic> → inject_frontmatter.py build_frontmatter/…/inject_into_review
  *  - classify <slug> <topic> → classify_papers.classify_via_bundle (HDBSCAN approximate_predict)
@@ -274,6 +275,21 @@ def main():
         r.write_review(item, slug_dir, figs)
         p = os.path.join(slug_dir, "review.md")
         print(json.dumps({"ok": os.path.exists(p) and os.path.getsize(p) >= 200})); return
+
+    if cmd == "sidecar":
+        # bibliography.json — build_bibliography_db 가 이걸 읽으면 Zotero 라이브러리
+        # 전체 페이징(~200초, 실패 시 zotero_item_key 조용히 유실)을 건너뛴다.
+        slug_dir, meta_json = sys.argv[3], sys.argv[4]
+        pdf_path = sys.argv[5] if len(sys.argv) > 5 else ""
+        import run_update_force as r
+        meta = json.load(open(meta_json, encoding="utf-8"))
+        payload = r.write_bibliography_sidecar(
+            _to_item(meta), slug_dir, pdf_path or None)
+        print(json.dumps({
+            "ok": bool((payload.get("zotero") or {}).get("key")),
+            "authors": len(payload.get("authors") or []),
+            "affiliations": len(payload.get("affiliations") or []),
+        })); return
 
     if cmd == "originality":
         # topic_modeling.py 경로 그대로: abstract 창 → 전체 → "title. essence" (LLM 없음, 헤더 없음)
@@ -927,6 +943,40 @@ export async function extractOriginalityViaBridge(
     return !!lastJson(r.stdout).ok
   } catch (e) {
     log("extractOriginalityViaBridge 예외", e)
+    return false
+  }
+}
+
+/**
+ * bibliography.json 사이드카 생성 — 리뷰 시점의 Zotero 레코드를 논문 폴더에 남긴다.
+ * 이게 없으면 paper-curation 의 build_bibliography_db 가 빌드마다 Zotero 라이브러리
+ * 전체를 페이징한다(~200초, 실패하면 zotero_item_key 가 조용히 유실됨).
+ * review.md 와 text.md 가 먼저 있어야 하고(해시를 기록해 stale 여부를 판정),
+ * PDF 경로를 주면 소속까지 함께 캡처한다. 실패해도 리뷰는 막지 않는다.
+ */
+export async function writeSidecarViaBridge(
+  slugDir: string,
+  meta: unknown,
+  pcRoot: string,
+  pdfPath?: string,
+): Promise<boolean> {
+  if (!pcRoot) return false
+  try {
+    const metaPath = joinPath(slugDir, "_pc_sidecar.json")
+    await writeText(metaPath, JSON.stringify(meta))
+    const script = await ensureBridgeScript()
+    const argv = [script, pcRoot, "sidecar", slugDir, metaPath]
+    if (pdfPath) argv.push(pdfPath)
+    const r = await runPython(argv)
+    if (!r.ok) {
+      log("sidecar 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
+      return false
+    }
+    const j = lastJson(r.stdout)
+    if (!j.ok) log("sidecar ok=false", j.reason || "")
+    return !!j.ok
+  } catch (e) {
+    log("writeSidecarViaBridge 예외", e)
     return false
   }
 }

@@ -15,7 +15,7 @@ toast-compare-fail = Comparison failed: { $err }
 
 # Toasts — guards
 toast-no-items = No regular items selected.
-toast-no-provider = No LLM API key configured. Set one in Settings → Paper Curio (Anthropic / OpenAI / Gemini).
+toast-no-provider = No LLM backend is available. Configure API keys or the Claude/Codex CLI in Settings → Paper Curio.
 
 # Toasts — single
 toast-running = Generating review: { $title }
@@ -64,15 +64,17 @@ chat-send = Send
 chat-close = Close
 chat-thinking = Thinking…
 chat-empty-reply = (empty reply)
-chat-greeting = Ask anything about "{ $title }" — answers use the full PDF as context. (Paid API calls; an estimated running cost is shown above.)
+chat-greeting = Ask anything about "{ $title }" — answers use the full PDF as context.
 chat-no-pdf-note = Could not extract PDF text — answering from metadata only.
 chat-cost = Paid API · est. ${ $cost } · in { $in } / out { $out } tok
 chat-cost-title = Rough estimate from list prices; actual billing may differ.
+chat-cost-cli = Local CLI session
+chat-cost-cli-title = Uses the selected Claude/Codex CLI login session. Paper Curio cannot report its API cost or token usage.
 
 # Comparative Chat (already-connected related papers) + multi-paper chat
 itemmenu-comparative-study = paper-curation AI Chat — multiple (with connections ?⃝)
 chat-title-multi = AI Chat — { $n } papers
-chat-greeting-multi = Ask anything about the { $n } selected papers — answers use their full PDFs as context. (Paid API calls; an estimated running cost is shown above.)
+chat-greeting-multi = Ask anything about the { $n } selected papers — answers use their full PDFs as context.
 toast-chat-ready-multi = { $n } papers ready — { $chars } chars total
 toast-compare-gather-related = Loading already-connected related papers…
 toast-compare-related-found = { $n } connected related paper(s) loaded

@@ -1,21 +1,21 @@
 # Paper Curio
 
-Zotero 9 플러그인 — **논문 PDF와 바로 대화(AI Chat)하고, 여러 논문을 비교 분석(Comparative Chat)하며, Zotero 컬렉션을 paper-curation 토픽으로 전체 처리합니다.** LLM API 키(Anthropic / OpenAI / Gemini 중 하나)만 있으면 AI Chat은 설치 직후 바로 동작합니다.
+Zotero 9 플러그인 — **논문 PDF와 바로 대화(AI Chat)하고, 여러 논문을 비교 분석(Comparative Chat)하며, Zotero 컬렉션을 paper-curation 토픽으로 전체 처리합니다.** LLM API 키(Anthropic / OpenAI / Gemini 중 하나) 또는 로그인된 Claude/Codex CLI가 있으면 AI Chat을 바로 사용할 수 있습니다.
 
 여기에 [**paper-curation**](https://github.com/jehyunlee/paper-curation)을 연동하면(경로 한 줄 지정) **연관논문 분석 · 답변 속 논문 그림 표시 · review 생성 · 비교 HTML · 컬렉션 우클릭 전체 처리(리뷰·분류·내러티브·main/category 타임라인, 배포 제외)** 같은 강화 기능이 활성화됩니다. ARIA처럼 툴바 버튼 없이, **우클릭 메뉴 단일 진입점**입니다.
 
 ## 두 가지 모드
 
-| | **Light (기본)** | **Enhanced (paper-curation 연동)** |
-|---|---|---|
-| 필요 조건 | Zotero + LLM API 키 | + paper-curation 경로 (Settings) |
-| AI Chat — PDF와 멀티턴 대화 (스트리밍·수식·EN/KO) | ✅ | ✅ 코퍼스 text.md 우선 → **더 빠름** |
-| Comparative Chat — 논문 비교 분석 | ✅ 선택 논문끼리 | ✅ + **이미 연결된 관련 연구**와 함께 |
-| **Citedby** — 이 논문을 인용한 논문 분석 | — | ✅ HTML 리포트(PDF 출력·Zotero 링크) + Zotero 일괄 등록 |
-| 답변 속 논문 **그림 인라인 표시** | — | ✅ |
-| 대화 내보내기 .md / .html | ✅ | ✅ (그림 임베드 포함) |
-| 대화 내보내기 **Obsidian** (위키링크) | — | ✅ |
-| Review 생성 · Comparison HTML · Collection 전체 처리 | — | ✅ (Python 3.12 브리지, 신규 컬렉션 alias 등록 포함) |
+|                                                      | **Light (기본)**                          | **Enhanced (paper-curation 연동)**                      |
+| ---------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------- |
+| 필요 조건                                            | Zotero + LLM API 키 또는 Claude/Codex CLI | + paper-curation 경로 (Settings)                        |
+| AI Chat — PDF와 멀티턴 대화 (스트리밍·수식·EN/KO)    | ✅                                        | ✅ 코퍼스 text.md 우선 → **더 빠름**                    |
+| Comparative Chat — 논문 비교 분석                    | ✅ 선택 논문끼리                          | ✅ + **이미 연결된 관련 연구**와 함께                   |
+| **Citedby** — 이 논문을 인용한 논문 분석             | —                                         | ✅ HTML 리포트(PDF 출력·Zotero 링크) + Zotero 일괄 등록 |
+| 답변 속 논문 **그림 인라인 표시**                    | —                                         | ✅                                                      |
+| 대화 내보내기 .md / .html                            | ✅                                        | ✅ (그림 임베드 포함)                                   |
+| 대화 내보내기 **Obsidian** (위키링크)                | —                                         | ✅                                                      |
+| Review 생성 · Comparison HTML · Collection 전체 처리 | —                                         | ✅ (Python 3.12 브리지, 신규 컬렉션 alias 등록 포함)    |
 
 Light 모드는 PDF 텍스트를 로컬에 캐시해 재오픈이 즉시입니다. Enhanced 모드는 paper-curation이 이미 분해해 둔 `text.md`·`figures/`를 먼저 읽어 첫 응답 준비가 더 빠릅니다.
 
@@ -27,7 +27,7 @@ Light 모드는 PDF 텍스트를 로컬에 캐시해 재오픈이 즉시입니�
 2. Zotero 9 → **Tools → Plugins → ⚙️ (우상단) → Install Plugin From File…** → 받은 `paper-curio.xpi` 선택.
 3. 이후 업데이트는 **자동**입니다 — Zotero가 릴리스의 `update.json` 매니페스트를 통해 새 버전을 받아옵니다.
 
-> 설치 + API 키 하나만으로 **AI Chat / Comparative Chat이 바로 동작합니다** (Light 모드). Review 생성·figure 추출·연관논문 분석·컬렉션 전체 처리 등 Enhanced 기능에는 아래 **선택 의존성** 섹션(paper-curation + py312 브리지)이 필요합니다.
+> 설치 + API 키 하나 또는 로그인된 Claude/Codex CLI로 **AI Chat / Comparative Chat이 바로 동작합니다** (Light 모드). Review 생성·figure 추출·연관논문 분석·컬렉션 전체 처리 등 Enhanced 기능에는 아래 **선택 의존성** 섹션(paper-curation + py312 브리지)이 필요합니다.
 
 ### 개발자 — 소스 빌드
 
@@ -42,26 +42,26 @@ npm run build          # → build/paper-curio.xpi  (tsc + pack)
 
 이 플러그인은 [paper-curation](https://github.com/jehyunlee/paper-curation) 파이프라인의 **원본 Python 함수**(`extract_text`, `extract_figures`, `write_review` 등)를 subprocess로 호출합니다. 따라서 완전한 동작에는 다음이 필요합니다:
 
-| 요구사항 | 용도 | 없을 때 |
-|---|---|---|
-| [paper-curation](https://github.com/jehyunlee/paper-curation) 설치 | 원본 함수 import + `docs/papers/` 출력 | text/review는 TS 폴백, **figure는 불가** |
-| **Python 3.12** + paper-curation requirements | 브리지 인터프리터 (`PYTHON_PATH` pref 또는 자동 관리형 env) | figure/원본 text·review/컬렉션 전체 처리 불가 → TS 폴백 |
-| `(선택)` Java + `opendataloader-pdf` | 구조화 text 추출 | PyMuPDF 텍스트로 자동 폴백 |
+| 요구사항                                                           | 용도                                                        | 없을 때                                                 |
+| ------------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------- |
+| [paper-curation](https://github.com/jehyunlee/paper-curation) 설치 | 원본 함수 import + `docs/papers/` 출력                      | text/review는 TS 폴백, **figure는 불가**                |
+| **Python 3.12** + paper-curation requirements                      | 브리지 인터프리터 (`PYTHON_PATH` pref 또는 자동 관리형 env) | figure/원본 text·review/컬렉션 전체 처리 불가 → TS 폴백 |
+| `(선택)` Java + `opendataloader-pdf`                               | 구조화 text 추출                                            | PyMuPDF 텍스트로 자동 폴백                              |
 
 paper-curation은 표준으로 **py312 환경**에서 돕니다. 같은 인터프리터를 `Settings → Paper Curio → Python 경로`에 지정하면 가장 빠르고, 비워두면 Paper Curio가 py312를 찾거나 관리형 venv를 만들며, 필요하면 relocatable Python 다운로드까지 시도합니다.
 
 ## 무엇을 어떻게 만드나
 
-| 출력 | 생성 방식 | 원본 함수 |
-|---|---|---|
-| `text.md` | 🐍 원본 함수 호출 | `run_update_force.extract_text` |
-| `figures/figN.png` | 🐍 원본 함수 호출 | `run_update_force.extract_figures` (PyMuPDF) |
-| `review.md` | 🐍 원본 함수 호출 | `run_update_force.write_review` (`claude-haiku-4-5`) |
-| `originality.md` | 🐍 원본 함수 호출 | `originality_extractor._extract_rule_based` |
-| 연관 논문(connections) | 🐍 원본 함수 호출 | `specter2_embed` + `compute_related_candidates` + `generate_connections_from_candidates` + `sync_topic_connections` (코퍼스 임베딩 캐시 필요) |
-| `index.html` | TS (`review_to_html.py` 포팅 + Audio Overview) | connections 주입 위해 TS |
-| `_papers_index.json` | TS append | topic은 Zotero collection에서, category는 paper-curation `classify_papers.py`에 위임 |
-| topic index / timelines | 🐍 원본 파이프라인 호출 | 컬렉션 우클릭 `run_full.py --mode curate --source zotero --images changed` → `index.html`, `_category_*`, `research_timeline.png`, `category_timeline_*.png` |
+| 출력                    | 생성 방식                                      | 원본 함수                                                                                                                                                    |
+| ----------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `text.md`               | 🐍 원본 함수 호출                              | `run_update_force.extract_text`                                                                                                                              |
+| `figures/figN.png`      | 🐍 원본 함수 호출                              | `run_update_force.extract_figures` (PyMuPDF)                                                                                                                 |
+| `review.md`             | 🐍 원본 함수 호출                              | `run_update_force.write_review` (`claude-haiku-4-5`)                                                                                                         |
+| `originality.md`        | 🐍 원본 함수 호출                              | `originality_extractor._extract_rule_based`                                                                                                                  |
+| 연관 논문(connections)  | 🐍 원본 함수 호출                              | `specter2_embed` + `compute_related_candidates` + `generate_connections_from_candidates` + `sync_topic_connections` (코퍼스 임베딩 캐시 필요)                |
+| `index.html`            | TS (`review_to_html.py` 포팅 + Audio Overview) | connections 주입 위해 TS                                                                                                                                     |
+| `_papers_index.json`    | TS append                                      | topic은 Zotero collection에서, category는 paper-curation `classify_papers.py`에 위임                                                                         |
+| topic index / timelines | 🐍 원본 파이프라인 호출                        | 컬렉션 우클릭 `run_full.py --mode curate --source zotero --images changed` → `index.html`, `_category_*`, `research_timeline.png`, `category_timeline_*.png` |
 
 > 키가 없거나 브리지(py312/paper-curation)가 없으면 review는 TS 멀티프로바이더(Anthropic→OpenAI→Gemini)로, text는 pdf.js로 graceful fallback 합니다. figure는 원본 전용입니다.
 
@@ -69,13 +69,26 @@ paper-curation은 표준으로 **py312 환경**에서 돕니다. 같은 인터�
 
 우선순위: **환경변수 → preferences 입력칸**. 시도 순서 Anthropic → OpenAI → Gemini.
 
-| Provider | 환경변수 | 기본 모델 (paper-curation과 동일) |
-|---|---|---|
-| Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-5` |
-| OpenAI | `OPENAI_API_KEY` | `gpt-5` |
-| Gemini | `GEMINI_API_KEY` (또는 `GOOGLE_API_KEY`) | `gemini-3.1-pro-preview` |
+| Provider  | 환경변수                                 | 기본 모델 (paper-curation과 동일) |
+| --------- | ---------------------------------------- | --------------------------------- |
+| Anthropic | `ANTHROPIC_API_KEY`                      | `claude-sonnet-5`                 |
+| OpenAI    | `OPENAI_API_KEY`                         | `gpt-5`                           |
+| Gemini    | `GEMINI_API_KEY` (또는 `GOOGLE_API_KEY`) | `gemini-3.1-pro-preview`          |
 
 > 원본 `write_review`는 `ANTHROPIC_API_KEY`로 `claude-haiku-4-5`를 사용합니다. macOS GUI 앱은 셸 환경변수를 못 보므로, 환경변수로 쓰려면 `launchctl setenv` 또는 LaunchAgent가 필요합니다. 아니면 Settings에 직접 입력하세요.
+
+## Claude / Codex CLI로 사용 (API 키 불필요)
+
+`Settings → Paper Curio → LLM 백엔드`에서 `Claude CLI (claude -p)` 또는
+`Codex CLI (codex exec)`를 선택합니다. 각 CLI는 터미널에서 먼저 로그인되어
+있어야 합니다. 실행 파일은 `~/.local/bin`과 일반적인 Homebrew 경로에서 자동
+탐색하며, Zotero가 찾지 못하면 설정에 절대 경로를 지정할 수 있습니다.
+
+CLI 모드에서는 논문 내용과 대화가 로컬 CLI의 표준입력으로 전달됩니다. API 키
+입력은 사용하지 않으며, 리뷰 생성과 AI Chat 모두 선택한 CLI를 이용합니다.
+CLI 호출은 API SDK처럼 토큰 사용량을 돌려주지 않으므로 채팅 창의 비용 표시는
+`로컬 CLI 세션`으로 표시됩니다. Claude는 safe mode, Codex는 사용자 설정을
+무시하는 모드로 실행해 프로젝트별 지침·플러그인의 영향을 최소화합니다.
 
 ## 출력 위치
 

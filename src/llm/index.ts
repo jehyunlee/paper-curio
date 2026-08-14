@@ -9,6 +9,7 @@ import OpenAI from "openai"
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import { getAnthropicKey, getOpenAIKey, getGeminiKey } from "../utils/env"
 import { getPrefStr } from "../utils/prefs"
+import { cliComplete, CliReviewProvider, selectedCliBackend } from "./cli"
 
 export { ReviewPayload } from "./schema"
 export { AggregateProviderError } from "./provider"
@@ -18,9 +19,21 @@ export { AggregateProviderError } from "./provider"
  * Anthropic → OpenAI → Gemini 폴백. 전부 실패하면 빈 문자열.
  */
 export async function completeText(prompt: string): Promise<string> {
+  const cli = selectedCliBackend()
+  if (cli) {
+    try {
+      return await cliComplete(cli, prompt)
+    } catch (e) {
+      log(`completeText ${cli} 실패`, e)
+      return ""
+    }
+  }
   if (getAnthropicKey()) {
     try {
-      const c = new Anthropic({ apiKey: getAnthropicKey(), dangerouslyAllowBrowser: true })
+      const c = new Anthropic({
+        apiKey: getAnthropicKey(),
+        dangerouslyAllowBrowser: true,
+      })
       const r = await c.messages.create({
         model: getPrefStr("ANTHROPIC_MODEL") || "claude-sonnet-4-6",
         max_tokens: 1024,
@@ -34,7 +47,10 @@ export async function completeText(prompt: string): Promise<string> {
   }
   if (getOpenAIKey()) {
     try {
-      const c = new OpenAI({ apiKey: getOpenAIKey(), dangerouslyAllowBrowser: true })
+      const c = new OpenAI({
+        apiKey: getOpenAIKey(),
+        dangerouslyAllowBrowser: true,
+      })
       const r = await c.chat.completions.create({
         model: getPrefStr("OPENAI_MODEL") || "gpt-5",
         messages: [{ role: "user", content: prompt }],
@@ -61,8 +77,10 @@ export async function completeText(prompt: string): Promise<string> {
   return ""
 }
 
-/** Anthropic → OpenAI → Gemini 순. */
+/** 선택한 CLI 또는 Anthropic → OpenAI → Gemini 순. */
 function chain(): ReviewProvider[] {
+  const cli = selectedCliBackend()
+  if (cli) return [new CliReviewProvider(cli)]
   return [new AnthropicProvider(), new OpenAIProvider(), new GeminiProvider()]
 }
 
@@ -78,10 +96,7 @@ export function configuredProviders(): string[] {
     .map((p) => p.name)
 }
 
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  retries = 2,
-): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
   let lastErr: any
   for (let i = 0; i <= retries; i++) {
     try {
@@ -111,12 +126,14 @@ export async function generateReview(
 
   for (const p of chain()) {
     if (!p.isConfigured()) {
-      attempts.push({ provider: p.name, error: "API key 없음" })
+      attempts.push({ provider: p.name, error: "설정되지 않음" })
       continue
     }
     try {
       log(`시도: ${p.name}`)
-      const payload = await withRetry(() => p.generate(systemPrompt, userPrompt))
+      const payload = await withRetry(() =>
+        p.generate(systemPrompt, userPrompt),
+      )
       log(`성공: ${p.name}`)
       return { payload, provider: p.name }
     } catch (e: any) {

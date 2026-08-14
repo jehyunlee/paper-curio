@@ -8,8 +8,14 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 import { getAnthropicKey, getOpenAIKey, getGeminiKey } from "../utils/env"
 import { getPref, getPrefStr } from "../utils/prefs"
 import { llm as log } from "../utils/loggers"
+import { cliChatComplete, selectedCliBackend, type CliBackend } from "./cli"
 
-export type ChatProvider = "anthropic" | "openai" | "gemini"
+export type ChatProvider =
+  | "anthropic"
+  | "openai"
+  | "gemini"
+  | "claude-cli"
+  | "codex-cli"
 
 export interface ChatMsg {
   role: "user" | "assistant"
@@ -36,7 +42,9 @@ export interface ChatModelOption {
   label: string
 }
 
-const CURATED: Record<ChatProvider, string[]> = {
+type ApiChatProvider = "anthropic" | "openai" | "gemini"
+
+const CURATED: Record<ApiChatProvider, string[]> = {
   anthropic: ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5"],
   openai: ["gpt-5.5", "gpt-5", "gpt-4.1"],
   gemini: ["gemini-3.1-pro-preview", "gemini-3.5-flash"],
@@ -46,6 +54,8 @@ const PROVIDER_LABEL: Record<ChatProvider, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   gemini: "Gemini",
+  "claude-cli": "Claude CLI",
+  "codex-cli": "Codex CLI",
 }
 
 /**
@@ -93,7 +103,7 @@ export function estimateCost(
   )
 }
 
-function keyFor(p: ChatProvider): string {
+function keyFor(p: ApiChatProvider): string {
   return p === "anthropic"
     ? getAnthropicKey()
     : p === "openai"
@@ -101,7 +111,7 @@ function keyFor(p: ChatProvider): string {
       : getGeminiKey()
 }
 
-function prefModel(p: ChatProvider): string {
+function prefModel(p: ApiChatProvider): string {
   return getPrefStr(
     p === "anthropic"
       ? "ANTHROPIC_MODEL"
@@ -113,8 +123,18 @@ function prefModel(p: ChatProvider): string {
 
 /** 설정된 provider들의 선택 가능한 (provider, model) 목록. pref 지정 모델을 맨 앞에. */
 export function availableChatModels(): ChatModelOption[] {
+  const cli = selectedCliBackend()
+  if (cli) {
+    return [
+      {
+        provider: cli,
+        model: cli,
+        label: PROVIDER_LABEL[cli],
+      },
+    ]
+  }
   const out: ChatModelOption[] = []
-  ;(["anthropic", "openai", "gemini"] as ChatProvider[]).forEach((p) => {
+  ;(["anthropic", "openai", "gemini"] as ApiChatProvider[]).forEach((p) => {
     if (!keyFor(p)) return
     const models: string[] = []
     const pref = prefModel(p)
@@ -174,8 +194,14 @@ export async function chatComplete(
   messages: ChatMsg[],
   onDelta?: (delta: string) => void,
 ): Promise<ChatResult> {
+  if (provider === "claude-cli" || provider === "codex-cli") {
+    return cliChatComplete(provider as CliBackend, system, messages, onDelta)
+  }
   const key = keyFor(provider)
-  if (!key) throw new Error(`${PROVIDER_LABEL[provider]} API key가 설정되지 않았습니다.`)
+  if (!key)
+    throw new Error(
+      `${PROVIDER_LABEL[provider]} API key가 설정되지 않았습니다.`,
+    )
 
   const maxTok = chatMaxTokens()
 
@@ -190,9 +216,8 @@ export async function chatComplete(
         cache_control: { type: "ephemeral" as const },
       },
     ]
-    const convo: { role: "user" | "assistant"; content: string }[] = messages.map(
-      (m) => ({ role: m.role, content: m.content }),
-    )
+    const convo: { role: "user" | "assistant"; content: string }[] =
+      messages.map((m) => ({ role: m.role, content: m.content }))
     const acc = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }
     let fullText = ""
     // 응답이 max_tokens로 잘리면 지금까지의 답변을 assistant 프리필로 넣어
@@ -206,7 +231,9 @@ export async function chatComplete(
       })
       if (onDelta) stream.on("text", (t: string) => onDelta(t))
       const final = await stream.finalMessage()
-      const block = (final.content || []).find((b: any) => b.type === "text") as any
+      const block = (final.content || []).find(
+        (b: any) => b.type === "text",
+      ) as any
       const part = block?.text || ""
       fullText += part
       const u: any = final.usage || {}
@@ -337,7 +364,11 @@ export async function chatComplete(
     extra.push({ role: "model", parts: [{ text: fullText }] })
     extra.push({
       role: "user",
-      parts: [{ text: "Continue exactly where you left off. Do not repeat anything." }],
+      parts: [
+        {
+          text: "Continue exactly where you left off. Do not repeat anything.",
+        },
+      ],
     })
     log("gemini chat MAX_TOKENS 컷 — 이어받기", round + 1)
   }

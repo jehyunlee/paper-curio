@@ -1,6 +1,7 @@
 import { getPaperMeta } from "../apis/zotero/item"
 import { SYSTEM_PROMPT, buildUserPrompt } from "../prompts/review-prompt"
 import { generateReview } from "../llm"
+import { selectedCliBackend } from "../llm/cli"
 import { generateConnections } from "../llm/connections"
 import { resolveOutputTarget } from "./pc-discovery"
 import {
@@ -99,12 +100,14 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
   const textOk =
     pdfPath && (await extractTextViaBridge(pdfPath, slugDir, target.root))
   if (textOk) {
-    textStr = (await readText(joinPath(slugDir, "text.md")).catch(() => "")) || ""
+    textStr =
+      (await readText(joinPath(slugDir, "text.md")).catch(() => "")) || ""
     log(`text 원본 추출 OK (${textStr.length}자)`)
   } else {
     const ts = await extractText(item)
     textStr = ts.text
-    if (textStr) await writeText(joinPath(slugDir, "text.md"), buildTextMd(textStr))
+    if (textStr)
+      await writeText(joinPath(slugDir, "text.md"), buildTextMd(textStr))
     log(`text TS 폴백 (${textStr.length}자)`)
   }
 
@@ -115,7 +118,10 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
 
   // 5) review.md — 원본 write_review(py312, claude-haiku-4-5) 우선, 실패 시 TS 멀티프로바이더.
   let provider = "anthropic (write_review)"
-  let reviewViaBridge = await writeReviewViaBridge(slugDir, meta, target.root)
+  // CLI를 명시적으로 고른 경우 API 기반 paper-curation write_review를 우회한다.
+  let reviewViaBridge = selectedCliBackend()
+    ? false
+    : await writeReviewViaBridge(slugDir, meta, target.root)
   if (!reviewViaBridge) {
     log("review 브리지 미사용/실패 → TS 폴백")
     const { payload, provider: p } = await generateReview(
@@ -244,7 +250,11 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
       // _paper_connections.json + global 에 직접 영속화한다(연결 갭 방지).
       try {
         const synced = await syncConnectionsViaBridge(
-          primaryTopic, slug, slugDir, connections, target.root,
+          primaryTopic,
+          slug,
+          slugDir,
+          connections,
+          target.root,
         )
         log(`connections 폴백 sync ${synced ? "OK" : "skip"}`)
       } catch (e) {
@@ -314,7 +324,11 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
   //       _papers_index.json 기록 뒤 실행(build_frontmatter가 인덱스 엔트리를 읽음).
   //       paper-curation/모듈 없으면 false → review.md는 본문만 유지(무시).
   try {
-    const injected = await injectFrontmatterViaBridge(slug, primaryTopic, target.root)
+    const injected = await injectFrontmatterViaBridge(
+      slug,
+      primaryTopic,
+      target.root,
+    )
     log(`frontmatter 주입 ${injected ? "OK" : "skip"}`)
   } catch (e) {
     log("frontmatter 주입 실패(무시)", e)
@@ -335,7 +349,11 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
 
   // 11) Zotero item 표시
   try {
-    ztoolkit.ExtraField.setExtraField(item, "papercurio", `${slug};${reviewDate}`)
+    ztoolkit.ExtraField.setExtraField(
+      item,
+      "papercurio",
+      `${slug};${reviewDate}`,
+    )
   } catch (e) {
     log("extra field 기록 실패(무시)", e)
   }

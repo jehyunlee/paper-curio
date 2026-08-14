@@ -26,6 +26,7 @@ import {
   readBinaryBase64,
 } from "../utils/fs"
 import { getPrefStr, setPref } from "../utils/prefs"
+import { selectedCliBackend } from "../llm/cli"
 
 const MAX_CTX_CHARS = 120_000
 
@@ -121,8 +122,12 @@ const COMPARE_SEED: Record<ChatLang, { single: string; multi: string }> = {
   },
 }
 function escapeHtml(s: string): string {
-  return String(s ?? "").replace(/[&<>"']/g, (ch) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] as string,
+  return String(s ?? "").replace(
+    /[&<>"']/g,
+    (ch) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        ch
+      ] as string,
   )
 }
 
@@ -153,12 +158,21 @@ function renderMarkdown(md: string): string {
 
   let html = ""
   try {
-    html = String((marked as any).parse(masked, { breaks: true, headerIds: false, mangle: false }))
+    html = String(
+      (marked as any).parse(masked, {
+        breaks: true,
+        headerIds: false,
+        mangle: false,
+      }),
+    )
   } catch {
     html = escapeHtml(md)
   }
   html = html
-    .replace(/<\s*(script|style|iframe|object|embed|link|meta)\b[\s\S]*?(<\/\s*\1\s*>|$)/gi, "")
+    .replace(
+      /<\s*(script|style|iframe|object|embed|link|meta)\b[\s\S]*?(<\/\s*\1\s*>|$)/gi,
+      "",
+    )
     .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(/(href|src)\s*=\s*("|')\s*(javascript|data):[^"']*\2/gi, '$1="#"')
   return html.replace(/@@PCMATH(\d+)@@/g, (_m, i) => {
@@ -167,14 +181,26 @@ function renderMarkdown(md: string): string {
   })
 }
 
-function toastLine(type: "default" | "success" | "fail", text: string, ms = 4000) {
-  new ztoolkit.ProgressWindow(config.addonName, { closeOnClick: true, closeTime: -1 })
+function toastLine(
+  type: "default" | "success" | "fail",
+  text: string,
+  ms = 4000,
+) {
+  new ztoolkit.ProgressWindow(config.addonName, {
+    closeOnClick: true,
+    closeTime: -1,
+  })
     .createLine({ type, text, progress: 100 })
     .show()
     .startCloseTimer(ms)
 }
 
-function paperMeta(item: Zotero.Item): { title: string; authors: string; year: string; doi: string } {
+function paperMeta(item: Zotero.Item): {
+  title: string
+  authors: string
+  year: string
+  doi: string
+} {
   const title = item.getDisplayTitle()
   let authors = ""
   try {
@@ -391,6 +417,7 @@ interface OpenChatOptions {
 /** 공용 채팅 다이얼로그. seed가 있으면 열자마자 그 질문을 스트리밍으로 실행한다. */
 async function openChat(opts: OpenChatOptions): Promise<void> {
   const models = availableChatModels()
+  const cliMode = selectedCliBackend() !== null
   const primaryBudget = opts.related.length ? 78_000 : MAX_CTX_CHARS
   const perPaper = Math.max(
     8_000,
@@ -411,7 +438,8 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
 
   // ── 인라인 그림 (enhanced: 코퍼스 figures 마커 치환) ──
   const figMap = new Map<string, ChatFig>()
-  for (const p of opts.papers) for (const f of p.figs || []) figMap.set(f.key, f)
+  for (const p of opts.papers)
+    for (const f of p.figs || []) figMap.set(f.key, f)
 
   function resolveFigs(md: string): string {
     if (!figMap.size) return md
@@ -445,14 +473,31 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     namespace: "html",
     classList: ["pc-root"],
     children: [
-      { tag: "style", namespace: "html", properties: { textContent: CHAT_CSS } },
+      {
+        tag: "style",
+        namespace: "html",
+        properties: { textContent: CHAT_CSS },
+      },
       {
         tag: "div",
         namespace: "html",
         classList: ["pc-header"],
         children: [
-          { tag: "select", namespace: "html", id: "pc-chat-model", classList: ["pc-select"], children: optionChildren },
-          { tag: "button", namespace: "html", id: "pc-chat-lang", classList: ["pc-exp"], attributes: { title: getString("chat-lang-title") }, properties: { textContent: "KO" } },
+          {
+            tag: "select",
+            namespace: "html",
+            id: "pc-chat-model",
+            classList: ["pc-select"],
+            children: optionChildren,
+          },
+          {
+            tag: "button",
+            namespace: "html",
+            id: "pc-chat-lang",
+            classList: ["pc-exp"],
+            attributes: { title: getString("chat-lang-title") },
+            properties: { textContent: "KO" },
+          },
           {
             tag: "span",
             namespace: "html",
@@ -460,7 +505,9 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
             classList: ["pc-cost"],
             attributes: { title: getString("chat-cost-title") },
             properties: {
-              textContent: getString("chat-cost", { args: { cost: "0.0000", in: "0", out: "0" } }),
+              textContent: getString("chat-cost", {
+                args: { cost: "0.0000", in: "0", out: "0" },
+              }),
             },
           },
           {
@@ -468,14 +515,40 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
             namespace: "html",
             classList: ["pc-export"],
             children: [
-              { tag: "button", namespace: "html", id: "pc-exp-md", classList: ["pc-exp"], attributes: { title: getString("chat-export-md") }, properties: { textContent: "MD" } },
-              { tag: "button", namespace: "html", id: "pc-exp-html", classList: ["pc-exp"], attributes: { title: getString("chat-export-html") }, properties: { textContent: "HTML" } },
-              { tag: "button", namespace: "html", id: "pc-exp-obs", classList: ["pc-exp"], attributes: { title: getString("chat-export-obsidian") }, properties: { textContent: "OB" } },
+              {
+                tag: "button",
+                namespace: "html",
+                id: "pc-exp-md",
+                classList: ["pc-exp"],
+                attributes: { title: getString("chat-export-md") },
+                properties: { textContent: "MD" },
+              },
+              {
+                tag: "button",
+                namespace: "html",
+                id: "pc-exp-html",
+                classList: ["pc-exp"],
+                attributes: { title: getString("chat-export-html") },
+                properties: { textContent: "HTML" },
+              },
+              {
+                tag: "button",
+                namespace: "html",
+                id: "pc-exp-obs",
+                classList: ["pc-exp"],
+                attributes: { title: getString("chat-export-obsidian") },
+                properties: { textContent: "OB" },
+              },
             ],
           },
         ],
       },
-      { tag: "div", namespace: "html", id: "pc-chat-log", classList: ["pc-log"] },
+      {
+        tag: "div",
+        namespace: "html",
+        id: "pc-chat-log",
+        classList: ["pc-log"],
+      },
       {
         tag: "div",
         namespace: "html",
@@ -486,7 +559,10 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
             namespace: "html",
             id: "pc-chat-input",
             classList: ["pc-input"],
-            attributes: { rows: "3", placeholder: getString("chat-input-placeholder") },
+            attributes: {
+              rows: "3",
+              placeholder: getString("chat-input-placeholder"),
+            },
           },
           {
             tag: "div",
@@ -536,7 +612,10 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
   }
   function updateCost() {
     const el = doc().getElementById("pc-chat-cost")
-    if (el)
+    if (el && cliMode) {
+      el.textContent = getString("chat-cost-cli")
+      el.setAttribute("title", getString("chat-cost-cli-title"))
+    } else if (el) {
       el.textContent = getString("chat-cost", {
         args: {
           cost: totalCost.toFixed(4),
@@ -544,6 +623,7 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
           out: totalOut.toLocaleString(),
         },
       })
+    }
   }
 
   function setBusy(on: boolean) {
@@ -615,7 +695,9 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
   /** 질문 1턴 실행 (스트리밍). 사용자 말풍선 + 스트리밍 답변 + 비용 갱신. */
   async function runTurn(question: string): Promise<void> {
     if (busy) return
-    const sel = doc().getElementById("pc-chat-model") as HTMLSelectElement | null
+    const sel = doc().getElementById(
+      "pc-chat-model",
+    ) as HTMLSelectElement | null
     if (!sel) return
     const [provider, model] = sel.value.split("|") as [ChatProvider, string]
 
@@ -630,15 +712,27 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
       let answer = ""
       for (let attempt = 1; attempt <= 3; attempt++) {
         acc = ""
-        const res = await chatComplete(provider, model, systemText + langDirective(currentLang), messages, (delta) => {
-          acc += delta
-          streamBubble.update(acc)
-        })
+        const res = await chatComplete(
+          provider,
+          model,
+          systemText + langDirective(currentLang),
+          messages,
+          (delta) => {
+            acc += delta
+            streamBubble.update(acc)
+          },
+        )
         answer = (res.text || acc).trim()
         const u = res.usage
         totalIn += u.input + (u.cacheWrite || 0) + (u.cacheRead || 0)
         totalOut += u.output
-        totalCost += estimateCost(model, u.input, u.output, u.cacheWrite || 0, u.cacheRead || 0)
+        totalCost += estimateCost(
+          model,
+          u.input,
+          u.output,
+          u.cacheWrite || 0,
+          u.cacheRead || 0,
+        )
         updateCost()
         if (answer) break
         log(`빈 응답 — 재시도 ${attempt}/3`)
@@ -653,13 +747,17 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
       log("chat 호출 실패", e)
     } finally {
       setBusy(false)
-      ;(doc().getElementById("pc-chat-input") as HTMLTextAreaElement | null)?.focus()
+      ;(
+        doc().getElementById("pc-chat-input") as HTMLTextAreaElement | null
+      )?.focus()
     }
   }
 
   async function onSend(): Promise<void> {
     if (busy) return
-    const input = doc().getElementById("pc-chat-input") as HTMLTextAreaElement | null
+    const input = doc().getElementById(
+      "pc-chat-input",
+    ) as HTMLTextAreaElement | null
     if (!input) return
     const question = (input.value || "").trim()
     if (!question) return
@@ -674,7 +772,9 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
   }
   function exportTitle(): string {
-    return opts.papers.length === 1 ? opts.papers[0].meta.title : `${opts.papers.length} papers`
+    return opts.papers.length === 1
+      ? opts.papers[0].meta.title
+      : `${opts.papers.length} papers`
   }
   function safeBaseName(): string {
     const base =
@@ -691,7 +791,8 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     return opts.papers
       .map((p, i) => {
         const tag = opts.papers.length > 1 ? `[P${i + 1}] ` : ""
-        if (wiki && p.slug) return `- ${tag}[[papers/${p.slug}/review]] — ${p.meta.title}`
+        if (wiki && p.slug)
+          return `- ${tag}[[papers/${p.slug}/review]] — ${p.meta.title}`
         const bits = [p.meta.authors, p.meta.year].filter(Boolean).join(", ")
         const doi = p.meta.doi ? ` · DOI: ${p.meta.doi}` : ""
         return `- ${tag}${p.meta.title}${bits ? ` — ${bits}` : ""}${doi}`
@@ -718,7 +819,9 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
   function buildMarkdown(): string {
     const relBlock = opts.related.length
       ? "\n\n**Connected related papers**\n" +
-        opts.related.map((r) => `- ${r.relation ? r.relation + ": " : ""}${r.title}`).join("\n")
+        opts.related
+          .map((r) => `- ${r.relation ? r.relation + ": " : ""}${r.title}`)
+          .join("\n")
       : ""
     return (
       `# Paper Curio Chat — ${exportTitle()}\n\n*${nowStamp()}*\n\n` +
@@ -743,7 +846,10 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     const relBlock = opts.related.length
       ? "\n\n## Connected related papers\n" +
         opts.related
-          .map((r) => `- [[papers/${r.slug}/review]] — ${r.relation ? r.relation + ": " : ""}${r.reason || r.title}`)
+          .map(
+            (r) =>
+              `- [[papers/${r.slug}/review]] — ${r.relation ? r.relation + ": " : ""}${r.reason || r.title}`,
+          )
           .join("\n")
       : ""
     return (
@@ -771,7 +877,9 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
         const role = m.role === "user" ? "🧑 User" : "🤖 Assistant"
         const cls = m.role === "user" ? "user" : "ai"
         let body =
-          m.role === "user" ? `<pre class="u">${escapeHtml(m.content)}</pre>` : renderMarkdown(resolveFigs(m.content))
+          m.role === "user"
+            ? `<pre class="u">${escapeHtml(m.content)}</pre>`
+            : renderMarkdown(resolveFigs(m.content))
         for (const [u, dURI] of dataUri) body = body.split(u).join(dURI)
         return `<div class="turn ${cls}"><div class="role">${role}</div>${body}</div>`
       })
@@ -796,7 +904,9 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
     }
     try {
       const filters: [string, string][] =
-        kind === "md" ? [["Markdown (*.md)", "*.md"]] : [["HTML (*.html)", "*.html"]]
+        kind === "md"
+          ? [["Markdown (*.md)", "*.md"]]
+          : [["HTML (*.html)", "*.html"]]
       const picked = await new FilePickerHelper(
         getString("chat-export-save"),
         "save",
@@ -806,9 +916,17 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
       if (!picked) return
       const content = kind === "md" ? buildMarkdown() : await buildHtml()
       await writeText(String(picked), content)
-      toastLine("success", getString("chat-export-done", { args: { path: String(picked) } }))
+      toastLine(
+        "success",
+        getString("chat-export-done", { args: { path: String(picked) } }),
+      )
     } catch (e: any) {
-      toastLine("fail", getString("chat-export-fail", { args: { err: String(e?.message ?? e) } }))
+      toastLine(
+        "fail",
+        getString("chat-export-fail", {
+          args: { err: String(e?.message ?? e) },
+        }),
+      )
       log("chat export 실패", e)
     }
   }
@@ -827,14 +945,24 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
       await makeDir(dir)
       const path = joinPath(dir, `${safeBaseName()}.md`)
       await writeText(path, buildObsidianMd())
-      toastLine("success", getString("chat-export-obsidian-done", { args: { path } }))
+      toastLine(
+        "success",
+        getString("chat-export-obsidian-done", { args: { path } }),
+      )
       try {
-        ;(Zotero as any).launchURL?.(`obsidian://open?path=${encodeURIComponent(path)}`)
+        ;(Zotero as any).launchURL?.(
+          `obsidian://open?path=${encodeURIComponent(path)}`,
+        )
       } catch {
         /* Obsidian 미설치/미등록 볼트 — 파일은 저장됨 */
       }
     } catch (e: any) {
-      toastLine("fail", getString("chat-export-fail", { args: { err: String(e?.message ?? e) } }))
+      toastLine(
+        "fail",
+        getString("chat-export-fail", {
+          args: { err: String(e?.message ?? e) },
+        }),
+      )
       log("obsidian export 실패", e)
     }
   }
@@ -851,9 +979,15 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
           },
         })
         d.documentElement.appendChild(link)
-        ;(d.getElementById("pc-send") as HTMLButtonElement | null)?.addEventListener("click", () => void onSend())
-        ;(d.getElementById("pc-close") as HTMLButtonElement | null)?.addEventListener("click", () => dialog.window.close())
-        const input = d.getElementById("pc-chat-input") as HTMLTextAreaElement | null
+        ;(
+          d.getElementById("pc-send") as HTMLButtonElement | null
+        )?.addEventListener("click", () => void onSend())
+        ;(
+          d.getElementById("pc-close") as HTMLButtonElement | null
+        )?.addEventListener("click", () => dialog.window.close())
+        const input = d.getElementById(
+          "pc-chat-input",
+        ) as HTMLTextAreaElement | null
         input?.addEventListener("keydown", (ev: KeyboardEvent) => {
           if (ev.key === "Enter" && !ev.shiftKey) {
             ev.preventDefault()
@@ -882,13 +1016,22 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
             let text = String(w.getSelection?.() ?? "")
             const ae = d.activeElement as HTMLTextAreaElement | null
             if (!text && ae && typeof (ae as any).selectionStart === "number")
-              text = (ae.value || "").slice(ae.selectionStart ?? 0, ae.selectionEnd ?? 0)
+              text = (ae.value || "").slice(
+                ae.selectionStart ?? 0,
+                ae.selectionEnd ?? 0,
+              )
             if (text && copyText(text)) ev.preventDefault()
           }
         })
-        ;(d.getElementById("pc-exp-md") as HTMLButtonElement | null)?.addEventListener("click", () => void exportFile("md"))
-        ;(d.getElementById("pc-exp-html") as HTMLButtonElement | null)?.addEventListener("click", () => void exportFile("html"))
-        ;(d.getElementById("pc-exp-obs") as HTMLButtonElement | null)?.addEventListener("click", () => void exportObsidian())
+        ;(
+          d.getElementById("pc-exp-md") as HTMLButtonElement | null
+        )?.addEventListener("click", () => void exportFile("md"))
+        ;(
+          d.getElementById("pc-exp-html") as HTMLButtonElement | null
+        )?.addEventListener("click", () => void exportFile("html"))
+        ;(
+          d.getElementById("pc-exp-obs") as HTMLButtonElement | null
+        )?.addEventListener("click", () => void exportObsidian())
         const _log = d.getElementById("pc-chat-log") as HTMLElement | null
         _log?.addEventListener("scroll", () => {
           if (!_log) return
@@ -896,7 +1039,9 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
           stickToBottom =
             _log.scrollHeight - _log.scrollTop - _log.clientHeight < 24
         })
-        const langBtn = d.getElementById("pc-chat-lang") as HTMLButtonElement | null
+        const langBtn = d.getElementById(
+          "pc-chat-lang",
+        ) as HTMLButtonElement | null
         if (langBtn) {
           langBtn.textContent = currentLang.toUpperCase()
           langBtn.addEventListener("click", () => {
@@ -905,6 +1050,7 @@ async function openChat(opts: OpenChatOptions): Promise<void> {
             langBtn.textContent = currentLang.toUpperCase()
           })
         }
+        updateCost()
         if (opts.greeting) appendBubble("assistant", opts.greeting)
         if (!anyText) appendBubble("error", getString("chat-no-pdf-note"))
         if (opts.seed) void runTurn(opts.seed)
@@ -938,8 +1084,17 @@ export async function openChatForSelection(): Promise<void> {
     return
   }
 
-  const pw = new ztoolkit.ProgressWindow(config.addonName, { closeOnClick: true, closeTime: -1 })
-    .createLine({ type: "default", text: getString("toast-chat-extracting", { args: { title: targets[0].getDisplayTitle() } }), progress: 10 })
+  const pw = new ztoolkit.ProgressWindow(config.addonName, {
+    closeOnClick: true,
+    closeTime: -1,
+  })
+    .createLine({
+      type: "default",
+      text: getString("toast-chat-extracting", {
+        args: { title: targets[0].getDisplayTitle() },
+      }),
+      progress: 10,
+    })
     .show()
 
   const target = await tryResolveOutputTarget()
@@ -947,7 +1102,9 @@ export async function openChatForSelection(): Promise<void> {
   for (let i = 0; i < targets.length; i++) {
     pw.changeLine({
       type: "default",
-      text: getString("toast-chat-extracting", { args: { title: targets[i].getDisplayTitle() } }),
+      text: getString("toast-chat-extracting", {
+        args: { title: targets[i].getDisplayTitle() },
+      }),
       progress: Math.round(((i + 1) / targets.length) * 100),
     })
     papers.push(await buildChatPaper(targets[i], target, i, targets.length > 1))
@@ -957,8 +1114,12 @@ export async function openChatForSelection(): Promise<void> {
     type: totalChars ? "success" : "default",
     text: totalChars
       ? papers.length === 1
-        ? getString("toast-chat-ready", { args: { chars: totalChars, pages: papers[0].pages } })
-        : getString("toast-chat-ready-multi", { args: { n: papers.length, chars: totalChars } })
+        ? getString("toast-chat-ready", {
+            args: { chars: totalChars, pages: papers[0].pages },
+          })
+        : getString("toast-chat-ready-multi", {
+            args: { n: papers.length, chars: totalChars },
+          })
       : getString("toast-chat-no-pdf"),
     progress: 100,
   })
@@ -987,8 +1148,17 @@ export async function openComparativeStudy(): Promise<void> {
     return
   }
 
-  const pw = new ztoolkit.ProgressWindow(config.addonName, { closeOnClick: true, closeTime: -1 })
-    .createLine({ type: "default", text: getString("toast-chat-extracting", { args: { title: targets[0].getDisplayTitle() } }), progress: 5 })
+  const pw = new ztoolkit.ProgressWindow(config.addonName, {
+    closeOnClick: true,
+    closeTime: -1,
+  })
+    .createLine({
+      type: "default",
+      text: getString("toast-chat-extracting", {
+        args: { title: targets[0].getDisplayTitle() },
+      }),
+      progress: 5,
+    })
     .show()
 
   const target = await tryResolveOutputTarget()
@@ -998,7 +1168,9 @@ export async function openComparativeStudy(): Promise<void> {
     const it = targets[i]
     pw.changeLine({
       type: "default",
-      text: getString("toast-chat-extracting", { args: { title: it.getDisplayTitle() } }),
+      text: getString("toast-chat-extracting", {
+        args: { title: it.getDisplayTitle() },
+      }),
       progress: Math.round(((i + 1) / targets.length) * 70),
     })
     const paper = await buildChatPaper(it, target, i, targets.length > 1)
@@ -1009,12 +1181,18 @@ export async function openComparativeStudy(): Promise<void> {
   // 이미 저장된 연결만 로드(생성하지 않음). 선택 논문 자기 자신 제외, slug 기준 dedupe.
   const relatedMap = new Map<string, RelatedPaper>()
   if (target) {
-    pw.changeLine({ type: "default", text: getString("toast-compare-gather-related"), progress: 82 })
+    pw.changeLine({
+      type: "default",
+      text: getString("toast-compare-gather-related"),
+      progress: 82,
+    })
     const perPaperCap = targets.length > 1 ? 6 : 12
     for (const p of papers) {
       if (!p.slug) continue
       try {
-        const rels = await loadRelatedForSlug(target.papersDir, p.slug, { maxPapers: perPaperCap })
+        const rels = await loadRelatedForSlug(target.papersDir, p.slug, {
+          maxPapers: perPaperCap,
+        })
         for (const r of rels) {
           if (selectedSlugs.has(r.slug) || relatedMap.has(r.slug)) continue
           relatedMap.set(r.slug, r)
@@ -1028,7 +1206,9 @@ export async function openComparativeStudy(): Promise<void> {
   pw.changeLine({
     type: "success",
     text: target
-      ? getString("toast-compare-related-found", { args: { n: related.length } })
+      ? getString("toast-compare-related-found", {
+          args: { n: related.length },
+        })
       : getString("toast-compare-light"),
     progress: 100,
   })

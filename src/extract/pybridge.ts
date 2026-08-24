@@ -464,20 +464,23 @@ def main():
         #
         # 비용: --changed-only 라 바뀐 논문이 없으면 4초, 신규 6편이면 7분
         # (기탁 API 왕복 포함). backfill 은 전체 38초.
+        # 세 단계다. finalize 가 빠지면 --strict 가 깨진 채로 남는다:
+        # ingest 와 backfill 이 두 링크 테이블을 서로 다른 규칙으로 정리해서,
+        # 저자 링크가 논문의 기관 목록에 없는 기관을 가리키는 행이 생긴다
+        # (신규 6편에서 10건). finalize 가 그 후보를 되살리고 부서 행을 지운다.
         pipe = os.path.join(pc_root, "pipeline")
         steps = [
-            ("build_bibliography_db.py", ["--changed-only", "--no-email"]),
-            ("build_bibliography_db.py", ["--backfill-author-institutions",
-                                          "--no-email"]),
+            ("ingest", ["--changed-only", "--no-email"]),
+            ("backfill", ["--backfill-author-institutions", "--no-email"]),
+            ("finalize", ["--finalize", "--no-email"]),
         ]
         results = {}
         ok = True
-        for script, sargs in steps:
-            sp = os.path.join(pipe, script)
+        script = "build_bibliography_db.py"
+        sp = os.path.join(pipe, script)
+        for key, sargs in steps:
             if not os.path.exists(sp):
-                results[script] = "missing"; ok = False; continue
-            key = script + (":backfill" if "--backfill-author-institutions"
-                            in sargs else ":ingest")
+                results[key] = "missing"; ok = False; continue
             try:
                 cp = subprocess.run([sys.executable, sp, *sargs], cwd=pc_root,
                                     capture_output=True, text=True, timeout=7200)

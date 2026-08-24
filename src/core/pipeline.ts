@@ -30,6 +30,7 @@ import {
   injectFrontmatterViaBridge,
   classifyViaBridge,
   integrateViaBridge,
+  syncBibliographyViaBridge,
 } from "../extract/pybridge"
 import { getPdfAttachmentKey, pdfFilePath } from "../extract/pdfjs"
 import { getItemTopics } from "./categorize"
@@ -335,6 +336,19 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     log(`frontmatter 주입 ${injected ? "OK" : "skip"}`)
   } catch (e) {
     log("frontmatter 주입 실패(무시)", e)
+  }
+
+  // 10.55) 서지 DB — 본체 풀런이 inject_frontmatter 직후 돌리는 자리와 동일.
+  //        이 단계가 없어서 리뷰·분류·타임라인·토픽 뷰가 다 만들어진 논문이
+  //        서지 DB 에는 존재하지 않는 상태로 남았다(6편, 9일간).
+  //        ingest 는 --changed-only 라 바뀐 게 없으면 4초에 끝나고,
+  //        backfill 이 저자↔기관 파서를 돌린다 — 둘 중 하나만 돌리면 새 논문은
+  //        추정 태그만 달고 확정되지 않는다.
+  try {
+    const synced = await syncBibliographyViaBridge(target.root)
+    log(`서지 DB ${synced ? "OK" : "skip/부분"}`)
+  } catch (e) {
+    log("서지 DB 갱신 실패(무시)", e)
   }
 
   // 10.6) paper-curation 토픽 뷰 반영 — 논문이 속한 모든 토픽에 대해 Deep Research

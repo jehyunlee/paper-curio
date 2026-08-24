@@ -451,6 +451,43 @@ def main():
         except Exception as e:
             print(json.dumps({"ok": False, "reason": "error:%s" % e})); return
 
+    if cmd == "bibliography":
+        # 리뷰가 만들어졌으면 서지 DB 도 같이 따라와야 한다. 본체 풀런은
+        # inject_frontmatter 직후 이 두 단계를 무조건 돌리는데(run_update_force
+        # 의 run_bibliography_release_steps), paper-curio 에는 그 배선이 없어서
+        # 리뷰·분류·타임라인까지 다 만들고도 서지 DB 만 8/15 상태에 멈춰 있었다.
+        #
+        # 두 단계를 *모두* 돌려야 한다. ingest 는 자체 폴백만 있어 바이라인을
+        # 못 읽으면 pdf.unmarked-multi(추정)를 쓰고 끝난다. 저자↔기관 파서
+        # 여덟 개는 backfill 에 있고, unmarked-multi 만 있는 논문을 재시도한다.
+        # ingest 만 돌린 실측: 신규 6편 중 3편이 확정 링크 0 → backfill 후 5편 해결.
+        #
+        # 비용: --changed-only 라 바뀐 논문이 없으면 4초, 신규 6편이면 7분
+        # (기탁 API 왕복 포함). backfill 은 전체 38초.
+        pipe = os.path.join(pc_root, "pipeline")
+        steps = [
+            ("build_bibliography_db.py", ["--changed-only", "--no-email"]),
+            ("build_bibliography_db.py", ["--backfill-author-institutions",
+                                          "--no-email"]),
+        ]
+        results = {}
+        ok = True
+        for script, sargs in steps:
+            sp = os.path.join(pipe, script)
+            if not os.path.exists(sp):
+                results[script] = "missing"; ok = False; continue
+            key = script + (":backfill" if "--backfill-author-institutions"
+                            in sargs else ":ingest")
+            try:
+                cp = subprocess.run([sys.executable, sp, *sargs], cwd=pc_root,
+                                    capture_output=True, text=True, timeout=7200)
+                results[key] = "ok" if cp.returncode == 0 else "fail:%d" % cp.returncode
+                if cp.returncode != 0:
+                    ok = False
+            except Exception as e:
+                results[key] = "error:%s" % e; ok = False
+        print(json.dumps({"ok": ok, "results": results})); return
+
     if cmd == "classify":
         # 원본 classify_papers.classify_via_bundle 로 카테고리 배정. 토픽 이름이
         # 모델 있는 토픽과 다르면(예: slugify 로 'ai4s+scisci'→'ai4s-scisci')
@@ -1004,6 +1041,38 @@ export async function injectFrontmatterViaBridge(
     return !!j.ok
   } catch (e) {
     log("injectFrontmatterViaBridge 예외", e)
+    return false
+  }
+}
+
+/**
+ * 서지 DB 를 리뷰와 같은 상태로 맞춘다 — ingest(--changed-only) + backfill.
+ *
+ * 본체 풀런이 inject_frontmatter 직후 무조건 돌리는 단계(run_update_force 의
+ * run_bibliography_release_steps)와 같은 자리. 이 배선이 없어서, 리뷰·분류·
+ * 타임라인·토픽 뷰까지 전부 만들어진 논문 6편이 서지 DB 에는 없었다.
+ *
+ * backfill 을 빼면 안 된다. ingest 는 바이라인을 못 읽으면 추정 태그를 쓰고
+ * 끝나고, 저자↔기관 파서 여덟 개는 backfill 쪽에 있다.
+ *
+ * 실패해도 리뷰 자체는 유효하므로 false 만 돌려준다(다음 실행이 따라잡는다).
+ */
+export async function syncBibliographyViaBridge(
+  pcRoot: string,
+): Promise<boolean> {
+  if (!pcRoot) return false
+  try {
+    const script = await ensureBridgeScript()
+    const r = await runPython([script, pcRoot, "bibliography"])
+    if (!r.ok) {
+      log("bibliography 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
+      return false
+    }
+    const j = lastJson(r.stdout)
+    if (!j.ok) log("bibliography ok=false", JSON.stringify(j.results || {}))
+    return !!j.ok
+  } catch (e) {
+    log("syncBibliographyViaBridge 예외", e)
     return false
   }
 }

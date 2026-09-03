@@ -345,13 +345,23 @@ def main():
             from topic_modeling import (
                 compute_related_candidates, generate_connections_from_candidates,
             )
-            all_cand = compute_related_candidates(embeddings, slugs, top_k=5)
+            idx_path = os.path.join(docs_root, "papers", "_papers_index.json")
+            all_papers = json.load(open(idx_path, encoding="utf-8"))
+            # 후보 검색은 dense(SPECTER2) + lexical(제목·저자 BM25) 하이브리드다.
+            # 제목·저자를 넘기지 않으면 dense 단독으로 떨어져, 같은 제목 시리즈의
+            # 직전편처럼 임베딩상 멀지만 명백히 연관된 논문을 놓친다.
+            meta_pool = [p for p in all_papers if p.get("slug") in set(slugs)]
+            if not any(p.get("slug") == slug for p in meta_pool):
+                meta_pool.append({"slug": slug, "title": meta.get("title", ""),
+                                  "authors": meta.get("authors", [])})
+            # top_k 는 extract_insights 와 같은 25. 신규 논문이 다음 풀런 전까지
+            # 받는 유일한 후보 창이라 여기를 좁히면 그 논문만 영구히 얕아진다.
+            all_cand = compute_related_candidates(embeddings, slugs, top_k=25,
+                                                  papers=meta_pool)
             cand = {slug: all_cand.get(slug, [])}
             if not cand[slug]:
                 print(json.dumps({"ok": True, "connections": []})); return
 
-            idx_path = os.path.join(docs_root, "papers", "_papers_index.json")
-            all_papers = json.load(open(idx_path, encoding="utf-8"))
             wanted = set(s for s, _ in cand[slug]) | set([slug])
             topic_papers = [p for p in all_papers if p.get("slug") in wanted]
             if not any(p.get("slug") == slug for p in topic_papers):

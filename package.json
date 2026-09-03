@@ -14,6 +14,7 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "zotero-plugin serve",
+    "test": "node test/normalizeReviewPayload.test.mjs",
     "build": "tsc --noEmit && zotero-plugin build",
     "build-only": "zotero-plugin build",
     "stop": "node scripts/stop.mjs",

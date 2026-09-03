@@ -113,7 +113,7 @@ async function viaAnthropic(sys: string, user: string): Promise<any> {
     dangerouslyAllowBrowser: true,
   })
   const resp = await client.messages.create({
-    model: getPrefStr("ANTHROPIC_MODEL") || "claude-sonnet-4-6",
+    model: getPrefStr("ANTHROPIC_MODEL") || "claude-sonnet-5",
     max_tokens: 2048,
     system: sys,
     messages: [{ role: "user", content: user }],

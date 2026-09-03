@@ -115,7 +115,7 @@ export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
     ? await extractFiguresViaBridge(pdfPath, slugDir, target.root)
     : []
 
-  // 5) review.md — 원본 write_review(py312, claude-haiku-4-5) 우선, 실패 시 TS 멀티프로바이더.
+  // 5) review.md — 원본 write_review(py312, claude-sonnet-5) 우선, 실패 시 TS 멀티프로바이더.
   let provider = "anthropic (write_review)"
   let reviewViaBridge = await writeReviewViaBridge(slugDir, meta, target.root)
   if (!reviewViaBridge) {

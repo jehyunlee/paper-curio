@@ -22,7 +22,7 @@ export async function completeText(prompt: string): Promise<string> {
     try {
       const c = new Anthropic({ apiKey: getAnthropicKey(), dangerouslyAllowBrowser: true })
       const r = await c.messages.create({
-        model: getPrefStr("ANTHROPIC_MODEL") || "claude-sonnet-4-6",
+        model: getPrefStr("ANTHROPIC_MODEL") || "claude-sonnet-5",
         max_tokens: 1024,
         messages: [{ role: "user", content: prompt }],
       })

@@ -55,8 +55,75 @@ export const REVIEW_PARAMETERS = {
   additionalProperties: false,
 } as const
 
+/**
+ * Sonnet 5 는 `emit_review` 를 호출하면서 스키마를 채우는 대신 XML 태그 리뷰를
+ * 한 필드에 통째로 밀어넣는다. paper-curation 이 이 모델로 갈아탄 뒤
+ * **509편의 review.md 가 깨져** `salvage_reviews.py` 로 복구해야 했다.
+ * 관측된 형태 세 가지(run_update_force._salvage_review_data 와 동일):
+ *   A) 전부 `essence` 에 + 꼬리에 `</invoke>`
+ *   B) `essence` 는 멀쩡하고 나머지가 `<parameter name="x">…</parameter>` 로
+ *   C) 필드는 멀쩡한데 `essence` 안에 `<parameter>` 잔해가 붙어 있음
+ *
+ * A·B 는 필수 필드가 비어 아래 검사에서 throw 되어 다음 provider 로 넘어가지만,
+ * C 는 검사를 통과해 잔해가 그대로 리뷰에 실린다. 그래서 파싱 전에 정규화한다.
+ */
+function unwrapToolParameters(raw: any): any {
+  if (!raw || typeof raw !== "object") {
+    return raw
+  }
+  const norm = (s: string) =>
+    s
+      .replace(/<parameter name="([^"]+)">([\s\S]*?)<\/parameter>/g, "<$1>$2</$1>")
+      .replace(/<parameter name="([^"]+)">/g, "<$1>")
+      .replace(/<\/parameter[^>]*>/g, "")
+      .replace(/<\/invoke>/g, "")
+
+  const fields = [
+    "essence", "known", "gap", "why", "approach", "achievement", "how",
+    "originality", "limitation", "verdict",
+  ]
+  const out: any = { ...raw }
+  for (const k of Object.keys(out)) {
+    if (typeof out[k] === "string") {
+      out[k] = norm(out[k])
+    }
+  }
+  // 정규화 후 태그가 보이면 그 안에서 필드를 되찾는다.
+  const combined = fields.map((f) => out[f] || "").join("\n")
+  if (!fields.some((f) => combined.includes(`<${f}>`))) {
+    return out
+  }
+  const extracted: Record<string, string> = {}
+  for (const f of fields) {
+    const m = combined.match(new RegExp(`<${f}>([\\s\\S]*?)</${f}>`))
+    if (m && m[1].trim()) {
+      extracted[f] = m[1].trim()
+    }
+  }
+  // 숙주 필드에서 태그 **블록 전체**를 걷어낸다. 태그만 지우면 남의 섹션
+  // 본문이 essence 뒤에 붙어 남는다("real essence text" + "KNOWN TEXT").
+  for (const f of fields) {
+    if (typeof out[f] !== "string") {
+      continue
+    }
+    let s: string = out[f]
+    for (const g of fields) {
+      s = s.replace(new RegExp(`<${g}>[\\s\\S]*?</${g}>`, "g"), "")
+    }
+    out[f] = s
+      .replace(/<\/?(?:essence|known|gap|why|approach|achievement|how|originality|limitation|verdict)>/g, "")
+      .trim()
+  }
+  // 추출한 값이 있으면 그것이 정답이다.
+  for (const [f, v] of Object.entries(extracted)) {
+    out[f] = v
+  }
+  return out
+}
+
 /** 응답 객체가 ReviewPayload 형태인지 검증 + 좌표 정규화(점수 clamp). */
-export function normalizeReviewPayload(raw: any): ReviewPayload {
+export function normalizeReviewPayload(input: any): ReviewPayload {
+  const raw = unwrapToolParameters(input)
   if (!raw || typeof raw !== "object") {
     throw new Error("emit_review returned non-object")
   }

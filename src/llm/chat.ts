@@ -37,7 +37,7 @@ export interface ChatModelOption {
 }
 
 const CURATED: Record<ChatProvider, string[]> = {
-  anthropic: ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5"],
+  anthropic: ["claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5"],
   openai: ["gpt-5.5", "gpt-5", "gpt-4.1"],
   gemini: ["gemini-3.1-pro-preview", "gemini-3.5-flash"],
 }

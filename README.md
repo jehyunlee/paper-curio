@@ -1,5 +1,7 @@
 # Paper Curio
 
+**한국어** | [English](README.en.md)
+
 Zotero 9 플러그인 — **논문 PDF와 바로 대화(AI Chat)하고, 여러 논문을 비교 분석(Comparative Chat)하며, Zotero 컬렉션을 paper-curation 토픽으로 전체 처리합니다.** LLM API 키(Anthropic / OpenAI / Gemini 중 하나)만 있으면 AI Chat은 설치 직후 바로 동작합니다.
 
 여기에 [**paper-curation**](https://github.com/jehyunlee/paper-curation)을 연동하면(경로 한 줄 지정) **연관논문 분석 · 답변 속 논문 그림 표시 · review 생성 · 비교 HTML · 컬렉션 우클릭 전체 처리(리뷰·분류·내러티브·main/category 타임라인, 배포 제외)** 같은 강화 기능이 활성화됩니다. ARIA처럼 툴바 버튼 없이, **우클릭 메뉴 단일 진입점**입니다.

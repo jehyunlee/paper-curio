@@ -66,7 +66,6 @@ async function pythonPath(): Promise<string> {
  * argv: <pc_root> <subcommand> <args...>
  *  - figures <pdf> <slug_dir>   → run_update_force.extract_figures (+ raw를 .pc_figs.json에 보관)
  *  - text    <pdf> <slug_dir>   → run_update_force.extract_text
- *  - review  <slug_dir> <meta_json> → _to_item(meta) + run_update_force.write_review (text.md·figures 사용)
  *  - originality <slug_dir> <meta_json> → originality_extractor._extract_rule_based
  *  - sidecar <slug_dir> <meta_json> [pdf] → run_update_force.write_bibliography_sidecar
  *  - connections <slug> <slug_dir> <topic> <meta_json> → specter2/compute_related/generate/sync
@@ -261,20 +260,6 @@ def main():
         r.extract_text(pdf_path, slug_dir)
         p = os.path.join(slug_dir, "text.md")
         print(json.dumps({"ok": os.path.exists(p) and os.path.getsize(p) >= 100})); return
-
-    if cmd == "review":
-        slug_dir, meta_json = sys.argv[3], sys.argv[4]
-        import run_update_force as r
-        meta = json.load(open(meta_json, encoding="utf-8"))
-        item = _to_item(meta)
-        figs = []
-        fp = os.path.join(slug_dir, ".pc_figs.json")
-        if os.path.exists(fp):
-            try: figs = json.load(open(fp, encoding="utf-8"))
-            except Exception: figs = []
-        r.write_review(item, slug_dir, figs)
-        p = os.path.join(slug_dir, "review.md")
-        print(json.dumps({"ok": os.path.exists(p) and os.path.getsize(p) >= 200})); return
 
     if cmd == "sidecar":
         # bibliography.json — build_bibliography_db 가 이걸 읽으면 Zotero 라이브러리
@@ -777,18 +762,33 @@ async function runPython(
   args: string[],
   env?: Record<string, string>,
   exe?: string,
+  input?: string,
 ): Promise<PyResult> {
   const Subprocess = await getSubprocess()
   if (!Subprocess) {
-    return { ok: false, stdout: "", stderr: "Subprocess 모듈 접근 불가", code: -1 }
+    return {
+      ok: false,
+      stdout: "",
+      stderr: "Subprocess 모듈 접근 불가",
+      code: -1,
+    }
   }
   try {
-    const opts: any = { command: exe || (await pythonPath()), arguments: args, stderr: "pipe" }
+    const opts: any = {
+      command: exe || (await pythonPath()),
+      arguments: args,
+      stderr: "pipe",
+    }
+    if (input !== undefined) opts.stdin = "pipe"
     if (env && Object.keys(env).length) {
       opts.environment = env
       opts.environmentAppend = true // 기존 env(PATH 등) 보존하며 추가
     }
     const proc = await Subprocess.call(opts)
+    if (input !== undefined) {
+      await proc.stdin.write(input)
+      await proc.stdin.close()
+    }
     const readAll = async (stream: any) => {
       let s = ""
       let c: string | null
@@ -811,6 +811,290 @@ function lastJson(stdout: string): any {
     return JSON.parse(stdout.trim().split("\n").filter(Boolean).pop() || "{}")
   } catch {
     return {}
+  }
+}
+
+/** Private pipe: the read response must never be logged or persisted. */
+export async function credentialViaBridge(
+  root: string,
+  operation: "read" | "write" | "delete" | "status",
+  provider: string,
+  value?: string,
+): Promise<{ reference: string; value?: string; configured?: boolean }> {
+  const script = joinPath(root, "pipeline", "credentials.py")
+  if (!(await IOUtils.exists(script)))
+    throw new Error("Shared credential runtime is missing")
+  const response = await runPython(
+    [script, "--operation", operation, "--provider", provider],
+    undefined,
+    undefined,
+    operation === "write" ? value || "" : undefined,
+  )
+  const result = lastJson(response.stdout)
+  if (!response.ok || !result || typeof result.reference !== "string") {
+    throw new Error(
+      "OS credential operation failed; check the shared Python runtime and keyring backend",
+    )
+  }
+  if (operation === "read" && typeof result.value !== "string") {
+    throw new Error("Invalid private credential response")
+  }
+  return result
+}
+
+export interface FeatureDefinition {
+  id: string
+  module: string
+  label_ko: string
+  label_en: string
+  supported_providers?: string[]
+  params_schema?: {
+    properties?: Record<
+      string,
+      { type?: string; description?: string; default?: unknown }
+    >
+    required?: string[]
+  }
+  [key: string]: unknown
+}
+
+export async function corpusViaBridge(
+  root: string,
+  request: Record<string, unknown>,
+): Promise<Record<string, any>> {
+  const script = joinPath(root, "pipeline", "lib", "corpus_store.py")
+  const dir = joinPath(PathUtils.profileDir, "papercurio")
+  await IOUtils.makeDirectory(dir, {
+    createAncestors: true,
+    ignoreExisting: true,
+  })
+  const path = joinPath(dir, `corpus-${Zotero.Utilities.randomString(16)}.json`)
+  try {
+    await writeText(path, JSON.stringify({ ...request, schema_version: 1 }))
+    const result = await runPython([script, "--request", path])
+    const data = lastJson(result.stdout)
+    if (
+      !result.ok ||
+      !data ||
+      data.schema_version !== 1 ||
+      data.op !== request.op ||
+      data.status !== "completed"
+    ) {
+      throw new Error(
+        data?.status === "busy"
+          ? "Corpus writer is busy; retry after it finishes"
+          : "Corpus transaction failed",
+      )
+    }
+    return data
+  } finally {
+    await IOUtils.remove(path, { ignoreAbsent: true })
+  }
+}
+
+/** Same manifest and JSON request contract used by the command-line client. */
+export async function featureViaBridge(
+  root: string,
+  request?: Record<string, unknown>,
+  execute = false,
+): Promise<Record<string, any>> {
+  const script = joinPath(root, "pipeline", "run_feature.py")
+  if (!(await IOUtils.exists(script)))
+    throw new Error("Shared feature runtime is missing")
+  const dir = joinPath(PathUtils.profileDir, "papercurio")
+  await IOUtils.makeDirectory(dir, {
+    createAncestors: true,
+    ignoreExisting: true,
+  })
+  const path = joinPath(
+    dir,
+    `feature-${Zotero.Utilities.randomString(16)}.json`,
+  )
+  try {
+    const args = [script]
+    if (request) {
+      await writeText(path, JSON.stringify(request))
+      args.push("--request", path)
+      if (execute) args.push("--execute")
+    } else args.push("--list")
+    const result = await runPython(args)
+    const data = lastJson(result.stdout)
+    if (
+      !data ||
+      data.schema_version !== 1 ||
+      (request && data.feature !== request.feature)
+    ) {
+      throw new Error("Invalid shared feature response")
+    }
+    if (!result.ok && (!request || typeof data.status !== "string")) {
+      throw new Error("Shared feature runtime failed")
+    }
+    return data
+  } finally {
+    await IOUtils.remove(path, { ignoreAbsent: true })
+  }
+}
+
+export interface LocalReviewRequest {
+  schema_version: 1
+  feature: "review"
+  pdf_path: string
+  output_dir: string
+  item: Record<string, unknown>
+  overwrite: boolean
+  provider?: "anthropic" | "openai" | "google"
+  model?: string
+  credential_ref?: string
+  reservation_token?: string
+  budget?: {
+    max_cost_usd: number
+    input_per_million_usd?: number
+    output_per_million_usd?: number
+    max_output_tokens: number
+  }
+}
+
+export interface LocalReviewResult {
+  schema_version: 1
+  feature: "review"
+  status:
+    | "ready"
+    | "needs-key"
+    | "needs-runtime"
+    | "insufficient-data"
+    | "failed"
+    | "completed"
+    | "exists"
+    | "budget-exceeded"
+    | "budget-unavailable"
+  provider: "anthropic" | "openai" | "google"
+  model: string
+  figures?: number
+  partial?: { review_ready: boolean; review?: string; cache_preserved: boolean }
+  error?: string
+  outputs?: { review: string; html: string; text: string; sidecar: string }
+}
+
+/** Plan and execute the same capability as the CLI; never switch providers. */
+export async function localReviewViaBridge(
+  pcRoot: string,
+  request: LocalReviewRequest,
+  execute: boolean,
+): Promise<LocalReviewResult> {
+  const provider = request.provider || "anthropic"
+  const model =
+    request.model ||
+    {
+      anthropic: "claude-sonnet-5",
+      openai: "gpt-5",
+      google: "gemini-3.1-pro-preview",
+    }[provider]
+  const failure = (
+    status: LocalReviewResult["status"],
+    error: string,
+  ): LocalReviewResult => ({
+    schema_version: 1,
+    feature: "review",
+    status,
+    error,
+    provider,
+    model,
+  })
+  const script = joinPath(pcRoot, "pipeline", "local_review.py")
+  if (!(await IOUtils.exists(script))) {
+    return failure(
+      "needs-runtime",
+      "Update paper-curation and configure its root path.",
+    )
+  }
+  const dir = joinPath(PathUtils.profileDir, "papercurio")
+  await IOUtils.makeDirectory(dir, {
+    createAncestors: true,
+    ignoreExisting: true,
+  })
+  const requestPath = joinPath(
+    dir,
+    `review-${Zotero.Utilities.randomString(16)}.json`,
+  )
+  try {
+    await writeText(requestPath, JSON.stringify(request))
+    const args = [script, "--request", requestPath]
+    if (execute) args.push("--execute")
+    // Inherit automation environment values normally. Resolve OS references
+    // inside Python so a key rotated by the CLI is not shadowed by a stale
+    // desktop memory cache.
+    const response = await runPython(args)
+    // Never show raw process output: third-party errors may include credentials.
+    const parsed = lastJson(response.stdout)
+    const states = [
+      "ready",
+      "needs-key",
+      "needs-runtime",
+      "insufficient-data",
+      "failed",
+      "completed",
+      "exists",
+      "budget-exceeded",
+      "budget-unavailable",
+    ]
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      parsed.schema_version !== 1 ||
+      parsed.feature !== "review" ||
+      parsed.provider !== provider ||
+      parsed.model !== model ||
+      !states.includes(parsed.status) ||
+      (parsed.error !== undefined && typeof parsed.error !== "string") ||
+      (parsed.partial !== undefined &&
+        (!parsed.partial ||
+          typeof parsed.partial.review_ready !== "boolean" ||
+          typeof parsed.partial.cache_preserved !== "boolean" ||
+          (parsed.partial.review !== undefined &&
+            typeof parsed.partial.review !== "string"))) ||
+      (["completed", "exists"].includes(parsed.status) &&
+        !["review", "html", "text", "sidecar"].every(
+          (key) =>
+            typeof parsed.outputs?.[key] === "string" &&
+            parsed.outputs[key].trim(),
+        )) ||
+      (!response.ok && ["ready", "completed", "exists"].includes(parsed.status))
+    ) {
+      return failure(
+        response.code === -1 ? "needs-runtime" : "failed",
+        "Local review bridge failed; check the configured Python 3.12 runtime.",
+      )
+    }
+    if (["completed", "exists"].includes(parsed.status)) {
+      try {
+        const canonical = (path: string) => {
+          const file = Zotero.File.pathToFile(path)
+          file.normalize()
+          return file.path
+        }
+        const root = canonical(request.output_dir)
+        const names = {
+          review: "review.md",
+          html: "index.html",
+          text: "text.md",
+          sidecar: "bibliography.json",
+        }
+        for (const [key, name] of Object.entries(names)) {
+          const path = canonical(parsed.outputs[key])
+          if (path !== joinPath(root, name) || !(await IOUtils.exists(path))) {
+            return failure(
+              "failed",
+              "Review output does not match the approved directory",
+            )
+          }
+        }
+      } catch {
+        return failure("failed", "Review output paths could not be verified")
+      }
+    }
+    return parsed as LocalReviewResult
+  } finally {
+    await IOUtils.remove(requestPath, { ignoreAbsent: true })
   }
 }
 
@@ -857,36 +1141,6 @@ export async function extractTextViaBridge(
     return !!lastJson(r.stdout).ok
   } catch (e) {
     log("extractTextViaBridge 예외", e)
-    return false
-  }
-}
-
-/**
- * 원본 write_review로 review.md 생성. ANTHROPIC_API_KEY를 env로 주입.
- * 키 없거나 실패 시 false (호출부가 TS 폴백).
- */
-export async function writeReviewViaBridge(
-  slugDir: string,
-  meta: PaperMeta,
-  pcRoot: string,
-): Promise<boolean> {
-  const key = getAnthropicKey()
-  if (!key || !pcRoot) return false
-  try {
-    const metaPath = joinPath(slugDir, "_pc_meta.json")
-    await writeText(metaPath, JSON.stringify(meta))
-    const script = await ensureBridgeScript()
-    const r = await runPython(
-      [script, pcRoot, "review", slugDir, metaPath],
-      { ANTHROPIC_API_KEY: key },
-    )
-    if (!r.ok) {
-      log("review 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 300))
-      return false
-    }
-    return !!lastJson(r.stdout).ok
-  } catch (e) {
-    log("writeReviewViaBridge 예외", e)
     return false
   }
 }
@@ -954,11 +1208,22 @@ export async function syncConnectionsViaBridge(
     await writeText(
       connsPath,
       JSON.stringify(
-        conns.map((c) => ({ slug: c.slug, relation: c.relation, reason: c.reason })),
+        conns.map((c) => ({
+          slug: c.slug,
+          relation: c.relation,
+          reason: c.reason,
+        })),
       ),
     )
     const script = await ensureBridgeScript()
-    const r = await runPython([script, pcRoot, "sync_conns", slug, topic, connsPath])
+    const r = await runPython([
+      script,
+      pcRoot,
+      "sync_conns",
+      slug,
+      topic,
+      connsPath,
+    ])
     if (!r.ok) {
       log("sync_conns 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
       return false
@@ -985,7 +1250,13 @@ export async function extractOriginalityViaBridge(
     const metaPath = joinPath(slugDir, "_pc_orig.json")
     await writeText(metaPath, JSON.stringify({ title, essence }))
     const script = await ensureBridgeScript()
-    const r = await runPython([script, pcRoot, "originality", slugDir, metaPath])
+    const r = await runPython([
+      script,
+      pcRoot,
+      "originality",
+      slugDir,
+      metaPath,
+    ])
     if (!r.ok) {
       log("originality 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
       return false
@@ -1044,9 +1315,19 @@ export async function injectFrontmatterViaBridge(
   if (!pcRoot || !slug || !topic) return false
   try {
     const script = await ensureBridgeScript()
-    const r = await runPython([script, pcRoot, "inject_frontmatter", slug, topic])
+    const r = await runPython([
+      script,
+      pcRoot,
+      "inject_frontmatter",
+      slug,
+      topic,
+    ])
     if (!r.ok) {
-      log("inject_frontmatter 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
+      log(
+        "inject_frontmatter 브리지 실패",
+        `code=${r.code}`,
+        r.stderr.slice(0, 200),
+      )
       return false
     }
     const j = lastJson(r.stdout)
@@ -1114,7 +1395,9 @@ export async function classifyViaBridge(
       log("classify ok=false", j.reason || "")
       return false
     }
-    log(`classify OK: ${j.primary_category || ""} (model=${j.model_topic || ""})`)
+    log(
+      `classify OK: ${j.primary_category || ""} (model=${j.model_topic || ""})`,
+    )
     return true
   } catch (e) {
     log("classifyViaBridge 예외", e)
@@ -1143,7 +1426,11 @@ export async function deployViaBridge(
     const r = await runPython([script, pcRoot, "deploy", topic])
     if (!r.ok) {
       log("deploy 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
-      return { ok: false, reason: `bridge:${r.code}`, tail: r.stderr.slice(0, 300) }
+      return {
+        ok: false,
+        reason: `bridge:${r.code}`,
+        tail: r.stderr.slice(0, 300),
+      }
     }
     const j = lastJson(r.stdout)
     log(`deploy ${j.ok ? "OK" : "실패"}: ${j.reason || j.code || ""}`)
@@ -1153,7 +1440,6 @@ export async function deployViaBridge(
     return { ok: false, reason: String(e) }
   }
 }
-
 
 let _runnerCache: string | undefined
 
@@ -1199,10 +1485,19 @@ export async function ensurePy312(
   const env: Record<string, string> = {}
   const pp = getPrefStr("PYTHON_PATH")
   if (pp) env.PC_PYTHON_PATH = pp
-  const r = await runPython([script, pcRoot, "ensure_env", managed], env, runner)
+  const r = await runPython(
+    [script, pcRoot, "ensure_env", managed],
+    env,
+    runner,
+  )
   const j = lastJson(r.stdout)
   if (!r.ok || !j?.ok) {
-    log("ensure_env 실패", `code=${r.code}`, String(j?.reason ?? ""), r.stderr.slice(-400))
+    log(
+      "ensure_env 실패",
+      `code=${r.code}`,
+      String(j?.reason ?? ""),
+      r.stderr.slice(-400),
+    )
     return { ok: false, reason: String(j?.reason ?? `bridge:${r.code}`) }
   }
   return { ok: true, python: j.python, action: j.action }
@@ -1246,10 +1541,16 @@ export async function runFullViaBridge(
     )
     if (!r.ok) {
       log("run_full 브리지 실패", `code=${r.code}`, r.stderr.slice(0, 200))
-      return { ok: false, reason: `bridge:${r.code}`, tail: r.stderr.slice(0, 300) }
+      return {
+        ok: false,
+        reason: `bridge:${r.code}`,
+        tail: r.stderr.slice(0, 300),
+      }
     }
     const j = lastJson(r.stdout)
-    const reason = String(j.reason ?? j.tail ?? (j.code != null ? `exit:${j.code}` : ""))
+    const reason = String(
+      j.reason ?? j.tail ?? (j.code != null ? `exit:${j.code}` : ""),
+    )
     log(`run_full ${j.ok ? "OK" : "실패"}: code=${j.code ?? ""} ${reason}`)
     return { ok: !!j.ok, reason, tail: j.tail, code: j.code }
   } catch (e) {
@@ -1311,7 +1612,9 @@ export async function integrateViaBridge(
       return false
     }
     const j = lastJson(r.stdout)
-    log(`integrate ${j.ok ? "OK" : "부분실패"}: ${JSON.stringify(j.results || {})}`)
+    log(
+      `integrate ${j.ok ? "OK" : "부분실패"}: ${JSON.stringify(j.results || {})}`,
+    )
     return !!j.ok
   } catch (e) {
     log("integrateViaBridge 예외", e)
@@ -1324,7 +1627,8 @@ export async function compareViaBridge(
   slugs: string[],
   pcRoot: string,
 ): Promise<{ ok: boolean; html?: string; title?: string; reason?: string }> {
-  if (!pcRoot || slugs.length < 2) return { ok: false, reason: "need_two_slugs" }
+  if (!pcRoot || slugs.length < 2)
+    return { ok: false, reason: "need_two_slugs" }
   try {
     const script = await ensureBridgeScript()
     const env: Record<string, string> = {}
@@ -1341,8 +1645,16 @@ export async function compareViaBridge(
     const r = await runPython([script, pcRoot, "compare", slugs.join(",")], env)
     const j = lastJson(r.stdout)
     if (r.ok && j?.ok) return { ok: true, html: j.html, title: j.title }
-    log("compare 브리지 실패", `code=${r.code}`, String(j?.reason ?? ""), r.stderr.slice(0, 200))
-    return { ok: false, reason: String(j?.reason ?? r.stderr.slice(-300) ?? "unknown") }
+    log(
+      "compare 브리지 실패",
+      `code=${r.code}`,
+      String(j?.reason ?? ""),
+      r.stderr.slice(0, 200),
+    )
+    return {
+      ok: false,
+      reason: String(j?.reason ?? r.stderr.slice(-300) ?? "unknown"),
+    }
   } catch (e) {
     log("compareViaBridge 예외", e)
     return { ok: false, reason: String(e) }
@@ -1440,7 +1752,12 @@ export async function citedbyViaBridge(
         papersJson: String(j.papers_json ?? ""),
       }
     }
-    log("citedby 브리지 실패", `code=${r.code}`, String(j?.reason ?? ""), r.stderr.slice(0, 200))
+    log(
+      "citedby 브리지 실패",
+      `code=${r.code}`,
+      String(j?.reason ?? ""),
+      r.stderr.slice(0, 200),
+    )
     return {
       ok: false,
       reason: String(j?.reason ?? j?.tail ?? r.stderr.slice(-300) ?? "unknown"),

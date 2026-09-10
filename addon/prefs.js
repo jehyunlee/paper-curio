@@ -1,17 +1,39 @@
 pref("extensions.zotero.__addonRef__.enable", true)
 
-// LLM provider API keys (env vars take precedence and overwrite these on startup)
-pref("extensions.zotero.__addonRef__.ANTHROPIC_API_KEY", "")
-pref("extensions.zotero.__addonRef__.OPENAI_API_KEY", "")
-pref("extensions.zotero.__addonRef__.GEMINI_API_KEY", "")
-
-// Citedby 문헌 DB 키 — Zotero.app 을 Finder 로 띄우면 셸 환경변수를 물려받지
-// 못하므로, 환경변수가 없을 때 쓸 pref 폴백이 반드시 필요하다.
-pref("extensions.zotero.__addonRef__.SCOPUS_API_KEY", "")
-pref("extensions.zotero.__addonRef__.SCOPUS_INST_TOKEN", "")
-pref("extensions.zotero.__addonRef__.S2_API_KEY", "")
+// Values live only in the shared OS keyring or injected environment.
+pref(
+  "extensions.zotero.__addonRef__.ANTHROPIC_API_KEY_CREDENTIAL_REF",
+  "credential:anthropic",
+)
+pref(
+  "extensions.zotero.__addonRef__.OPENAI_API_KEY_CREDENTIAL_REF",
+  "credential:openai",
+)
+pref(
+  "extensions.zotero.__addonRef__.GEMINI_API_KEY_CREDENTIAL_REF",
+  "credential:google",
+)
+pref(
+  "extensions.zotero.__addonRef__.SCOPUS_API_KEY_CREDENTIAL_REF",
+  "credential:scopus",
+)
+pref(
+  "extensions.zotero.__addonRef__.SCOPUS_INST_TOKEN_CREDENTIAL_REF",
+  "credential:scopus-inst",
+)
+pref(
+  "extensions.zotero.__addonRef__.S2_API_KEY_CREDENTIAL_REF",
+  "credential:semantic-scholar",
+)
 pref("extensions.zotero.__addonRef__.OPENALEX_EMAIL", "")
-pref("extensions.zotero.__addonRef__.SPRINGER_META_API_KEY", "")
+pref(
+  "extensions.zotero.__addonRef__.SPRINGER_META_API_KEY_CREDENTIAL_REF",
+  "credential:springer",
+)
+pref("extensions.zotero.__addonRef__.REVIEW_PROVIDER", "anthropic")
+pref("extensions.zotero.__addonRef__.REVIEW_MAX_COST_USD", "")
+pref("extensions.zotero.__addonRef__.REVIEW_INPUT_RATE", "")
+pref("extensions.zotero.__addonRef__.REVIEW_OUTPUT_RATE", "")
 
 // Default models per provider (paper-curation과 동일 기준)
 // Anthropic: paper-curation WRITE_REVIEW_MODEL. Gemini: 주력 모델. OpenAI: 참조 모델.

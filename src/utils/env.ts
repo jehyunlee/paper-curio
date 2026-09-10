@@ -1,104 +1,107 @@
-import { getPrefStr, setPref } from "./prefs"
-import { llm as log } from "./loggers"
+import { getPrefStr, setPref, clearPref } from "./prefs"
 
-/** OS 환경변수 1개 읽기 (Zotero/Firefox nsIEnvironment 경유). */
+/** Shared OS credential IDs; preferences contain references, never values. */
+export const CREDENTIAL_PROVIDERS: Record<string, string> = {
+  ANTHROPIC_API_KEY: "anthropic",
+  OPENAI_API_KEY: "openai",
+  GEMINI_API_KEY: "google",
+  SCOPUS_API_KEY: "scopus",
+  SCOPUS_INST_TOKEN: "scopus-inst",
+  S2_API_KEY: "semantic-scholar",
+  SPRINGER_META_API_KEY: "springer",
+}
+const credentialValues = new Map<string, string>()
+
 export function getOSEnv(name: string): string {
   try {
     const envSvc = (Components as any).classes[
       "@mozilla.org/process/environment;1"
-    ].getService((Components as any).interfaces.nsIEnvironment) as any
-    const v = envSvc.get(name)
-    return v && typeof v === "string" ? v.trim() : ""
+    ].getService((Components as any).interfaces.nsIEnvironment)
+    const value = envSvc.get(name)
+    return typeof value === "string" ? value.trim() : ""
   } catch {
     return ""
   }
 }
 
-/** env > pref 우선순위로 키 해결. */
-function resolveKey(envName: string, prefName: string): string {
-  const envVal = getOSEnv(envName)
-  if (envVal) return envVal
-  return getPrefStr(prefName)
+function key(provider: string, ...envNames: string[]): string {
+  for (const name of envNames) {
+    const value = getOSEnv(name)
+    if (value) return value
+  }
+  return credentialValues.get(provider) || ""
 }
 
 export function getAnthropicKey(): string {
-  return resolveKey("ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")
+  return key("anthropic", "ANTHROPIC_API_KEY")
 }
 export function getOpenAIKey(): string {
-  return resolveKey("OPENAI_API_KEY", "OPENAI_API_KEY")
+  return key("openai", "OPENAI_API_KEY")
 }
 export function getGeminiKey(): string {
-  return (
-    resolveKey("GEMINI_API_KEY", "GEMINI_API_KEY") ||
-    getOSEnv("GOOGLE_API_KEY")
-  )
+  return key("google", "GOOGLE_API_KEY", "GEMINI_API_KEY")
 }
-
-// ── Citedby 문헌 DB ──────────────────────────────────────────────────────
-//
-// Zotero.app 을 Finder 로 띄우면 셸 환경변수를 물려받지 못한다. 터미널에
-// SCOPUS_API_KEY 를 설정해 뒀어도 플러그인에서는 안 보이므로, pref 폴백이
-// 없으면 Zotero 경로의 citedby 는 Scopus 를 영영 못 쓴다.
-
-/** Scopus(Elsevier) API 키 — 서지·피인용수 조회. */
 export function getScopusKey(): string {
-  return (
-    resolveKey("SCOPUS_API_KEY", "SCOPUS_API_KEY") ||
-    getOSEnv("ELSEVIER_API_KEY")
-  )
+  return key("scopus", "SCOPUS_API_KEY", "ELSEVIER_API_KEY")
 }
-
-/** Scopus 기관 토큰 — 원격 접속에서 entitlement 를 실어 준다(선택). */
 export function getScopusInstToken(): string {
-  return resolveKey("SCOPUS_INST_TOKEN", "SCOPUS_INST_TOKEN")
+  return key("scopus-inst", "SCOPUS_INST_TOKEN")
 }
-
-/** Semantic Scholar 키 (선택 — rate limit 완화). */
 export function getS2Key(): string {
-  return resolveKey("S2_API_KEY", "S2_API_KEY")
+  return key("semantic-scholar", "S2_API_KEY")
 }
-
-/**
- * Springer Nature **Metadata** API 키 (선택).
- *
- * OpenAccess API 키와 **다른 키**다. 폐쇄형 Springer/Nature 논문의 초록은
- * OpenAlex/Crossref/S2 어디에도 없는데(발행사가 재배포를 막는다), 이 API 만
- * 준다. 실측: 초록 결손 8편이 다른 소스에서 전부 실패했지만 여기선 8/8 회수.
- */
 export function getSpringerMetaKey(): string {
-  return (
-    resolveKey("SPRINGER_META_API_KEY", "SPRINGER_META_API_KEY") ||
-    getOSEnv("NATURESPRINGERMETA_API_KEY") ||
-    getOSEnv("NATURESPRINTERMETA_API_KEY")
+  return key(
+    "springer",
+    "SPRINGER_META_API_KEY",
+    "NATURESPRINGERMETA_API_KEY",
+    "NATURESPRINTERMETA_API_KEY",
   )
 }
-
-/** OpenAlex/Crossref polite pool 이메일 (선택 — 있으면 우선 처리된다). */
 export function getOpenAlexEmail(): string {
   return (
-    resolveKey("OPENALEX_EMAIL", "OPENALEX_EMAIL") ||
-    getOSEnv("CROSSREF_EMAIL")
+    getOSEnv("OPENALEX_EMAIL") ||
+    getOSEnv("CROSSREF_EMAIL") ||
+    getPrefStr("OPENALEX_EMAIL")
   )
 }
 
-/**
- * 시작 시 OS 환경변수 → pref 주입. env가 source of truth.
- * (preferences UI에서 사용자가 본 값이 환경변수와 일치하도록.)
- */
-export function injectEnvSecrets() {
-  for (const k of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
-                   "SCOPUS_API_KEY", "SCOPUS_INST_TOKEN", "S2_API_KEY",
-                   "OPENALEX_EMAIL", "SPRINGER_META_API_KEY"]) {
-    const env = getOSEnv(k)
-    if (env) {
-      setPref(k, env)
-      log(`${k} 환경변수 → pref 주입 (${env.length}자)`)
+/** Missing OS runtime never blocks keyless reading or environment-injected AI. */
+export async function loadSharedCredentials(root: string): Promise<void> {
+  const { credentialViaBridge } = await import("../extract/pybridge")
+  for (const provider of Object.values(CREDENTIAL_PROVIDERS)) {
+    try {
+      const result = await credentialViaBridge(root, "read", provider)
+      credentialValues.set(provider, result.value || "")
+    } catch {
+      credentialValues.delete(provider)
     }
   }
-  // GOOGLE_API_KEY → GEMINI_API_KEY 별칭
-  const g = getOSEnv("GOOGLE_API_KEY")
-  if (g && !getOSEnv("GEMINI_API_KEY")) {
-    setPref("GEMINI_API_KEY", g)
-    log(`GOOGLE_API_KEY 환경변수 → GEMINI_API_KEY pref 주입`)
+}
+
+export async function saveSharedCredential(
+  root: string,
+  field: string,
+  value: string,
+): Promise<void> {
+  const provider = CREDENTIAL_PROVIDERS[field]
+  if (!provider) throw new Error("Unsupported credential field")
+  const { credentialViaBridge } = await import("../extract/pybridge")
+  const result = await credentialViaBridge(
+    root,
+    value ? "write" : "delete",
+    provider,
+    value,
+  )
+  if (result.reference !== `credential:${provider}`)
+    throw new Error("Unexpected credential reference")
+  if (value) {
+    setPref(`${field}_CREDENTIAL_REF`, result.reference)
+    credentialValues.set(provider, value)
+  } else {
+    clearPref(`${field}_CREDENTIAL_REF`)
+    credentialValues.delete(provider)
   }
+  // Remove the obsolete plaintext preference only after secure storage succeeds.
+  clearPref(field)
 }

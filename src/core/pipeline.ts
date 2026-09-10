@@ -1,394 +1,269 @@
 import { getPaperMeta } from "../apis/zotero/item"
-import { SYSTEM_PROMPT, buildUserPrompt } from "../prompts/review-prompt"
-import { generateReview } from "../llm"
-import { generateConnections } from "../llm/connections"
 import { resolveOutputTarget } from "./pc-discovery"
 import {
   nextNumber,
   findExisting,
-  upsertEntry,
-  mergeEntry,
   isPaperCurioEntry,
-  buildConnectionCandidates,
-  readPapersIndex,
   PaperIndexEntry,
 } from "./papers-index"
-import { getPref } from "../utils/prefs"
+import { getPref, getPrefStr } from "../utils/prefs"
 import { buildSlug } from "../utils/slugify"
-import { buildReviewMarkdown, todayISO } from "./review-md"
+import { todayISO } from "./review-md"
 import { parseReviewMd } from "./review-parse"
-import { buildReviewHtml, ConnItem } from "../render/reviewHtml"
-import { extractText, buildTextMd } from "../extract/text"
 import {
-  extractFiguresViaBridge,
-  extractTextViaBridge,
-  writeReviewViaBridge,
-  extractOriginalityViaBridge,
-  writeSidecarViaBridge,
-  generateConnectionsViaBridge,
-  syncConnectionsViaBridge,
-  injectFrontmatterViaBridge,
-  classifyViaBridge,
-  integrateViaBridge,
-  syncBibliographyViaBridge,
+  localReviewViaBridge,
+  LocalReviewRequest,
+  corpusViaBridge,
 } from "../extract/pybridge"
-import { getPdfAttachmentKey, pdfFilePath } from "../extract/pdfjs"
+import { pdfFilePath } from "../extract/pdfjs"
 import { getItemTopics } from "./categorize"
-import { buildOriginalityMarkdown } from "../extract/originality"
-import { joinPath, makeDir, writeText, readText, pathExists } from "../utils/fs"
+import { joinPath, readText, pathExists } from "../utils/fs"
+import { getString } from "../utils/locale"
 import { pipeline as log } from "../utils/loggers"
 
+declare const Services: any
+
 export interface ProcessResult {
+  status: "completed" | "partial" | "skipped"
+  recovery?: "retry-registration" | "retry-zotero-marker"
   slug: string
   title: string
-  score: number
+  score?: number
   provider: string
   indexHtmlPath: string
   source: string
   hadPdf: boolean
   figures: number
   connections: number
+  bibliography?: "sidecar-only"
+  bookkeeping?: "completed" | "failed"
   skipped?: boolean
-  skipReason?: "exists-native" | "exists-papercurio"
+  skipReason?: "exists-native" | "exists-papercurio" | "cancelled"
   overwritten?: boolean
 }
 
-export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
-  const meta = getPaperMeta(item)
-  log("처리 시작", meta.title)
+let reviewInProgress = false
 
-  // 1) 출력 위치 + 기존 review 존재 여부 (작업 전 — 비파괴)
+/** Serialize desktop writes; the engine separately locks each output directory. */
+export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
+  if (reviewInProgress) throw new Error(getString("review-already-running"))
+  reviewInProgress = true
+  try {
+    return await processLocalItem(item)
+  } finally {
+    reviewInProgress = false
+  }
+}
+
+/** The review action executes only the shared local-review capability. */
+async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
+  const meta = getPaperMeta(item)
   const target = await resolveOutputTarget()
   const existing = await findExisting(target.papersDir, {
     doi: meta.doi,
     zoteroKey: meta.key,
     title: meta.title,
   })
-  const overwritePref = getPref("OVERWRITE_EXISTING") === true
-  const existingIsOurs = existing ? isPaperCurioEntry(existing) : false
-  const overwriteAllowed = !existing || overwritePref || existingIsOurs
-
-  if (existing && !overwriteAllowed) {
-    log("기존 review 발견 — 건너뜀 (native)", existing.slug)
-    return {
-      slug: existing.slug,
-      title: meta.title,
-      score: typeof existing.score === "number" ? existing.score : 0,
-      provider: "-",
-      indexHtmlPath: joinPath(target.papersDir, existing.slug, "index.html"),
-      source: target.source,
-      hadPdf: !!existing.has_pdf,
-      figures: 0,
-      connections: 0,
-      skipped: true,
-      skipReason: existingIsOurs ? "exists-papercurio" : "exists-native",
-    }
-  }
-
-  // 2) 슬러그/폴더 먼저 (브리지가 이 폴더에 직접 기록)
-  const slug = existing
+  const overwriteAllowed =
+    getPref("OVERWRITE_EXISTING") === true ||
+    (!!existing && isPaperCurioEntry(existing))
+  let slug = existing
     ? existing.slug
     : buildSlug(await nextNumber(target.papersDir), meta.title)
   const slugDir = joinPath(target.papersDir, slug)
-  await makeDir(slugDir)
-  const paperNumber = parseInt(slug.split("_")[0], 10) || 0
-  const reviewDate = todayISO()
-  const pdfPath = await pdfFilePath(item)
-  const hasPdf = !!pdfPath
-
-  // 3) text.md — 원본 extract_text(py312) 우선, 실패 시 TS(pdf.js).
-  let textStr = ""
-  const textOk =
-    pdfPath && (await extractTextViaBridge(pdfPath, slugDir, target.root))
-  if (textOk) {
-    textStr = (await readText(joinPath(slugDir, "text.md")).catch(() => "")) || ""
-    log(`text 원본 추출 OK (${textStr.length}자)`)
-  } else {
-    const ts = await extractText(item)
-    textStr = ts.text
-    if (textStr) await writeText(joinPath(slugDir, "text.md"), buildTextMd(textStr))
-    log(`text TS 폴백 (${textStr.length}자)`)
-  }
-
-  // 4) figures — 원본 extract_figures(py312). figures/figN.png + .pc_figs.json.
-  const figures = pdfPath
-    ? await extractFiguresViaBridge(pdfPath, slugDir, target.root)
-    : []
-
-  // 5) review.md — 원본 write_review(py312, claude-sonnet-5) 우선, 실패 시 TS 멀티프로바이더.
-  let provider = "anthropic (write_review)"
-  let reviewViaBridge = await writeReviewViaBridge(slugDir, meta, target.root)
-  if (!reviewViaBridge) {
-    log("review 브리지 미사용/실패 → TS 폴백")
-    const { payload, provider: p } = await generateReview(
-      SYSTEM_PROMPT,
-      buildUserPrompt(meta, textStr),
-    )
-    provider = `${p} (TS)`
-    await writeText(
-      joinPath(slugDir, "review.md"),
-      buildReviewMarkdown({
-        meta,
-        payload,
-        provider: p,
-        hasPdf,
-        reviewDate,
-        figures,
-        topics: [],
-      }),
-    )
-  }
-
-  // 6) review.md 읽어 파싱 (브리지/TS 어느 쪽이 만들었든 통일 경로)
-  const reviewPath = joinPath(slugDir, "review.md")
-  const reviewContent = (await readText(reviewPath).catch(() => "")) || ""
-  const parsed = parseReviewMd(reviewContent)
-
-  // 7) originality.md — 원본 함수(_extract_rule_based) 브리지 우선, 실패 시 TS(동일 로직 포팅).
-  try {
-    const okBridge = await extractOriginalityViaBridge(
-      slugDir,
-      meta.title,
-      parsed.essence,
-      target.root,
-    )
-    if (!okBridge) {
-      const originality = await buildOriginalityMarkdown({
-        paperNumber,
-        title: meta.title,
-        textMd: textStr,
-        abstract: meta.abstract,
-        essence: parsed.essence,
-      })
-      await writeText(joinPath(slugDir, "originality.md"), originality)
-    }
-  } catch (e) {
-    log("originality.md 생성 실패(무시)", e)
-  }
-
-  // 7.5) bibliography.json — 리뷰 시점의 Zotero 레코드를 논문 폴더에 남긴다.
-  //      paper-curation 의 build_bibliography_db 는 사이드카가 있으면 Zotero
-  //      라이브러리 전체 페이징(~200초)을 건너뛴다. text.md 해시를 함께 기록하므로
-  //      review.md/text.md 가 모두 쓰인 뒤에 호출해야 한다.
-  try {
-    const ok = await writeSidecarViaBridge(
-      slugDir,
-      { ...meta, key: meta.key },
-      target.root,
-      pdfPath || undefined,
-    )
-    if (!ok) log("bibliography.json 사이드카 미생성(무시)")
-  } catch (e) {
-    log("bibliography.json 사이드카 생성 실패(무시)", e)
-  }
-
-  // topic은 Zotero collection 기반(캐노니컬: paper-curation config.json 역매핑).
-  // category는 paper-curation classify에 위임.
-  const topics = await getItemTopics(item, target.root)
-  const finalTopics = topics.length > 0 ? topics : ["uncategorized"]
-  const primaryTopic = finalTopics[0]
-
-  // 8) 연관 논문 — 원본 specter2/compute_related/generate/sync(py312) 우선.
-  //    캐시 있는 paper-curation 토픽(ai4s 등)만 동작 → 그 외/실패 시 TS 단일논문 LLM 폴백.
-  let connections: ConnItem[] = []
-  const idx = await readPapersIndex(target.papersDir)
-  const titleBySlug = new Map(idx.map((e) => [e.slug, e.title]))
-  const bridgeConns = await generateConnectionsViaBridge(
-    primaryTopic,
+  let indexHtmlPath = joinPath(slugDir, "index.html")
+  const skipped = (reason: ProcessResult["skipReason"]): ProcessResult => ({
+    status: "skipped",
     slug,
-    slugDir,
-    { ...meta, essence: parsed.essence },
-    target.root,
-  )
-
-  // An empty bridge response is not a successful connection result. It can be
-  // caused by a transient model/cache failure and must not erase a previously
-  // generated `_pc_conn_sync.json` or overwrite index.html with zero links.
-  let recovered: ConnItem[] = []
-  if (!bridgeConns?.length) {
-    try {
-      const raw = await readText(joinPath(slugDir, "_pc_conn_sync.json"))
-      const saved = JSON.parse(raw || "[]") as Array<Partial<ConnItem>>
-      recovered = saved
-        .filter((c) => !!c.slug && titleBySlug.has(c.slug))
-        .map((c) => ({
-          relation: c.relation || "alternative",
-          slug: c.slug!,
-          title: c.title || titleBySlug.get(c.slug!) || c.slug!,
-          reason: c.reason || "",
-        }))
-      if (recovered.length) {
-        log(`connections 저장본 복구: ${recovered.length}건`)
-      }
-    } catch {
-      recovered = []
-    }
+    title: meta.title,
+    score: existing?.score || 0,
+    provider: "-",
+    indexHtmlPath,
+    source: target.source,
+    hadPdf: !!existing?.has_pdf,
+    figures: 0,
+    connections: 0,
+    skipped: true,
+    skipReason: reason,
+  })
+  if (existing && !overwriteAllowed && (await pathExists(indexHtmlPath))) {
+    return skipped("exists-native")
   }
 
-  const primaryConns = bridgeConns?.length ? bridgeConns : recovered
-  if (primaryConns.length) {
-    connections = primaryConns.map((c) => ({
-      ...c,
-      title: c.title || titleBySlug.get(c.slug) || c.slug,
-    }))
-    log(`connections 원본/복구(${primaryTopic}): ${connections.length}건`)
-    // Re-sync recovered edges because their prior graph write may have failed.
-    if (recovered.length) {
-      const synced = await syncConnectionsViaBridge(
-        primaryTopic, slug, slugDir, connections, target.root,
-      )
-      log(`connections 복구 sync ${synced ? "OK" : "skip"}`)
+  const pdfPath = await pdfFilePath(item)
+  if (!pdfPath) throw new Error(getString("review-needs-pdf"))
+  const request: LocalReviewRequest = {
+    schema_version: 1,
+    feature: "review",
+    pdf_path: pdfPath,
+    output_dir: slugDir,
+    overwrite: overwriteAllowed,
+    item: {
+      key: meta.key,
+      title: meta.title,
+      creators: item.getCreatorsJSON(),
+      date: meta.date,
+      DOI: meta.doi,
+      abstractNote: meta.abstract,
+      url: meta.url,
+      publicationTitle: meta.journal,
+    },
+  }
+  const configuredProvider = getPrefStr("REVIEW_PROVIDER") || "anthropic"
+  if (!["anthropic", "openai", "google"].includes(configuredProvider)) {
+    throw new Error("Unsupported review provider")
+  }
+  request.provider = configuredProvider as LocalReviewRequest["provider"]
+  request.credential_ref = `credential:${configuredProvider}`
+  const cap = getPrefStr("REVIEW_MAX_COST_USD")
+  if (cap) {
+    const inputRate = getPrefStr("REVIEW_INPUT_RATE")
+    const outputRate = getPrefStr("REVIEW_OUTPUT_RATE")
+    request.budget = {
+      max_cost_usd: Number(cap),
+      max_output_tokens: 4000,
+      ...(inputRate ? { input_per_million_usd: Number(inputRate) } : {}),
+      ...(outputRate ? { output_per_million_usd: Number(outputRate) } : {}),
     }
-  } else {
+  }
+  const plan = await localReviewViaBridge(target.root, request, false)
+  if (plan.status === "exists") return skipped("exists-native")
+  if (plan.status !== "ready") {
+    throw new Error(
+      `${plan.status}: ${plan.error || getString("review-preflight-failed")}`,
+    )
+  }
+  const reservation = await corpusViaBridge(target.root, {
+    op: "reserve",
+    papers_dir: target.papersDir,
+    identity: { key: meta.key, doi: meta.doi, title: meta.title },
+  })
+  if (
+    typeof reservation.slug !== "string" ||
+    typeof reservation.token !== "string"
+  ) {
+    throw new Error("Invalid corpus reservation")
+  }
+  slug = reservation.slug
+  request.output_dir = joinPath(target.papersDir, slug)
+  request.reservation_token = reservation.token
+  indexHtmlPath = joinPath(request.output_dir, "index.html")
+  let registered = false
+  try {
+    const finalPlan = await localReviewViaBridge(target.root, request, false)
+    if (!["ready", "exists"].includes(finalPlan.status)) {
+      throw new Error(
+        `${finalPlan.status}: ${finalPlan.error || getString("review-preflight-failed")}`,
+      )
+    }
+    const confirmed = Services.prompt.confirm(
+      Zotero.getMainWindow(),
+      "Paper Curio — Review",
+      getString("review-plan-confirm", { args: { title: meta.title } }) +
+        "\n\nOutput: " +
+        request.output_dir +
+        "\n\n" +
+        JSON.stringify(finalPlan, null, 2),
+    )
+    if (!confirmed) return skipped("cancelled")
+    const result = await localReviewViaBridge(target.root, request, true)
+    if (!["completed", "exists"].includes(result.status) || !result.outputs) {
+      const partial =
+        result.partial?.review_ready && result.partial.review
+          ? ` — ${getString("review-partial-saved")} ${result.partial.review}`
+          : ""
+      throw new Error(
+        `${result.status}: ${result.error || getString("review-execution-failed")}${partial}`,
+      )
+    }
+    let score: number | undefined
+    let bookkeeping: "completed" | "failed" = "completed"
     try {
-      const candidates = await buildConnectionCandidates(target.papersDir, {
+      const parsed = parseReviewMd(await readText(result.outputs.review))
+      const topics = await getItemTopics(item, target.root)
+      const finalTopics = topics.length ? topics : ["uncategorized"]
+      const sidecar =
+        result.status === "exists"
+          ? JSON.parse(await readText(result.outputs.sidecar))
+          : null
+      const reviewDate = sidecar
+        ? typeof sidecar.captured_at === "string"
+          ? sidecar.captured_at.slice(0, 10)
+          : ""
+        : todayISO()
+      score = parsed.scores.overall
+      const fresh: PaperIndexEntry = {
         slug,
         title: meta.title,
         authors: meta.authors,
         date: meta.date,
-      })
-      const conns = await generateConnections(
-        { title: meta.title, essence: parsed.essence },
-        candidates,
-      )
-      connections = conns.map((c) => ({
-        relation: c.relation,
-        slug: c.slug,
-        title: c.title,
-        reason: c.reason,
-      }))
-      log(`connections TS 폴백: ${connections.length}건`)
-      // 브리지(LLM) 경로가 실패해 폴백으로 왔으므로, 폴백 연결을 토픽
-      // _paper_connections.json + global 에 직접 영속화한다(연결 갭 방지).
-      try {
-        const synced = await syncConnectionsViaBridge(
-          primaryTopic, slug, slugDir, connections, target.root,
-        )
-        log(`connections 폴백 sync ${synced ? "OK" : "skip"}`)
-      } catch (e) {
-        log("connections 폴백 sync 실패(무시)", e)
+        doi: meta.doi,
+        topics: finalTopics,
+        primary_topic: finalTopics[0],
+        classifications: {},
+        scores: parsed.scores,
+        score,
+        essence: parsed.essence,
+        has_pdf: true,
+        has_figures: (result.figures || 0) > 0,
+        review_date: reviewDate,
+        zotero_item_key: meta.key,
+        tags: ["paper", "papercurio-generated", ...finalTopics],
+        bibliography_status: "sidecar-only",
       }
-    } catch (e) {
-      log("connections TS 폴백 실패(무시)", e)
+      await corpusViaBridge(target.root, {
+        op: "register",
+        papers_dir: target.papersDir,
+        slug,
+        token: reservation.token,
+        entry: { ...fresh, classifications: undefined },
+      })
+      registered = true
+      await ztoolkit.ExtraField.setExtraField(
+        item,
+        "papercurio",
+        `${slug};${reviewDate}`,
+      )
+    } catch {
+      bookkeeping = "failed"
+      log("review files ready; local index/marker update failed", slug)
     }
-  }
-
-  // 9) index.html — reviewHtml.ts(review_to_html 포팅)로 review.md를 렌더 + connections 주입.
-  const html = buildReviewHtml({
-    frontmatter: {
-      title: parsed.title || meta.title,
-      authors: parsed.authors.length ? parsed.authors : meta.authors,
-      date: parsed.date || meta.date,
-      doi: parsed.doi || meta.doi,
-      url: parsed.url || meta.url,
-      scores: parsed.scores,
-      essence: parsed.essence,
-    },
-    body: parsed.body,
-    slug,
-    zoteroKey: (await getPdfAttachmentKey(item)) || meta.key,
-    connections,
-  })
-  const indexHtmlPath = joinPath(slugDir, "index.html")
-  await writeText(indexHtmlPath, html)
-
-  // 10) _papers_index.json (덮어쓰기면 기존 분류 메타 보존)
-  const score = parsed.scores.overall || 0
-  const fresh: PaperIndexEntry = {
-    slug,
-    title: meta.title,
-    authors: meta.authors,
-    date: meta.date,
-    doi: meta.doi,
-    topics: finalTopics,
-    primary_topic: finalTopics[0],
-    classifications: {},
-    scores: parsed.scores,
-    score,
-    essence: parsed.essence,
-    has_pdf: hasPdf,
-    has_figures: figures.length > 0,
-    review_date: reviewDate,
-    zotero_item_key: meta.key,
-    tags: ["paper", "papercurio-generated", ...finalTopics],
-  }
-  await upsertEntry(target.papersDir, mergeEntry(existing, fresh))
-
-  // 10.4) 카테고리 분류 — 원본 classify_papers.classify_via_bundle(HDBSCAN).
-  //       _papers_index 기록 직후 실행(인덱스 엔트리를 읽어 classifications 갱신).
-  //       토픽에 모델 없으면 skip(분류 비움) → 이후 paper-curation classify 에 위임.
-  //       논문이 속한 모든 토픽에 대해 분류(각 토픽 모델 → 토픽별 classifications 키).
-  for (const t of finalTopics) {
-    if (t === "uncategorized") continue
-    try {
-      const classified = await classifyViaBridge(slug, t, target.root)
-      log(`카테고리 분류[${t}] ${classified ? "OK" : "skip"}`)
-    } catch (e) {
-      log(`카테고리 분류[${t}] 실패(무시)`, e)
+    log("review completed; bibliography integration pending", slug)
+    return {
+      status: bookkeeping === "failed" ? "partial" : "completed",
+      recovery:
+        bookkeeping === "failed"
+          ? registered
+            ? "retry-zotero-marker"
+            : "retry-registration"
+          : undefined,
+      slug,
+      title: meta.title,
+      score,
+      provider: `${result.provider} (${result.model})`,
+      indexHtmlPath: result.outputs.html,
+      source: target.source,
+      hadPdf: true,
+      figures: result.figures || 0,
+      connections: 0,
+      bibliography: "sidecar-only",
+      bookkeeping,
+      overwritten: !!existing,
+      skipped: result.status === "exists",
+      skipReason: result.status === "exists" ? "exists-papercurio" : undefined,
     }
-  }
-
-  // 10.5) review.md에 원본 frontmatter + Related Papers 주입 — 본체 풀런과 출력 일치.
-  //       _papers_index.json 기록 뒤 실행(build_frontmatter가 인덱스 엔트리를 읽음).
-  //       paper-curation/모듈 없으면 false → review.md는 본문만 유지(무시).
-  try {
-    const injected = await injectFrontmatterViaBridge(slug, primaryTopic, target.root)
-    log(`frontmatter 주입 ${injected ? "OK" : "skip"}`)
-  } catch (e) {
-    log("frontmatter 주입 실패(무시)", e)
-  }
-
-  // 10.55) 서지 DB — 본체 풀런이 inject_frontmatter 직후 돌리는 자리와 동일.
-  //        이 단계가 없어서 리뷰·분류·타임라인·토픽 뷰가 다 만들어진 논문이
-  //        서지 DB 에는 존재하지 않는 상태로 남았다(6편, 9일간).
-  //        ingest 는 --changed-only 라 바뀐 게 없으면 4초에 끝나고,
-  //        backfill 이 저자↔기관 파서를 돌린다 — 둘 중 하나만 돌리면 새 논문은
-  //        추정 태그만 달고 확정되지 않는다.
-  try {
-    const synced = await syncBibliographyViaBridge(target.root)
-    log(`서지 DB ${synced ? "OK" : "skip/부분"}`)
-  } catch (e) {
-    log("서지 DB 갱신 실패(무시)", e)
-  }
-
-  // 10.6) paper-curation 토픽 뷰 반영 — 논문이 속한 모든 토픽에 대해 Deep Research
-  //       (검색 인덱스) + category 페이지 + network 재생성(논문당 즉시). 무거우므로
-  //       실패해도 무시(다음 풀런이 반영). 토픽은 캐노니컬(모델 번들 보유) → Part A 보장.
-  for (const t of finalTopics) {
-    if (t === "uncategorized") continue
-    try {
-      const integrated = await integrateViaBridge(t, target.root)
-      log(`토픽 반영[${t}] ${integrated ? "OK" : "skip/부분"}`)
-    } catch (e) {
-      log(`토픽 반영[${t}] 실패(무시)`, e)
+  } finally {
+    if (!registered) {
+      try {
+        await corpusViaBridge(target.root, {
+          op: "cancel",
+          papers_dir: target.papersDir,
+          slug,
+          token: reservation.token,
+        })
+      } catch {
+        log("Owned corpus reservation could not be released", slug)
+      }
     }
-  }
-
-  // 11) Zotero item 표시
-  try {
-    ztoolkit.ExtraField.setExtraField(item, "papercurio", `${slug};${reviewDate}`)
-  } catch (e) {
-    log("extra field 기록 실패(무시)", e)
-  }
-
-  log(
-    "처리 완료",
-    slug,
-    `score=${score}`,
-    `fig=${figures.length}`,
-    `conn=${connections.length}`,
-    `review=${reviewViaBridge ? "원본" : "TS"}`,
-  )
-  return {
-    slug,
-    title: meta.title,
-    score,
-    provider,
-    indexHtmlPath,
-    source: target.source,
-    hadPdf: hasPdf,
-    figures: figures.length,
-    connections: connections.length,
-    overwritten: !!existing,
   }
 }

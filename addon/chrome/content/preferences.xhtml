@@ -3,7 +3,7 @@
 </linkset>
 <vbox
   id="zotero-prefpane-__addonRef__"
-  onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', {window})"
+  onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window })"
 >
   <groupbox>
     <label><html:h2 data-l10n-id="pref-api-keys"></html:h2></label>
@@ -11,6 +11,33 @@
       data-l10n-id="pref-api-keys-hint"
       style="opacity: 0.7; font-size: 11px"
     ></description>
+    <hbox align="center">
+      <label data-l10n-id="pref-review-provider"></label>
+      <html:select preference="extensions.zotero.__addonRef__.REVIEW_PROVIDER">
+        <html:option value="anthropic">Anthropic · Sonnet 5</html:option>
+        <html:option value="openai">OpenAI · GPT-5</html:option>
+        <html:option value="google">Google · Gemini 3.1 Pro</html:option>
+      </html:select>
+    </hbox>
+    <html:details>
+      <html:summary data-l10n-id="pref-review-budget"></html:summary>
+      <label data-l10n-id="pref-review-budget-hint"></label>
+      <html:input
+        type="text"
+        placeholder="Maximum USD"
+        preference="extensions.zotero.__addonRef__.REVIEW_MAX_COST_USD"
+      ></html:input>
+      <html:input
+        type="text"
+        placeholder="Input USD / million tokens"
+        preference="extensions.zotero.__addonRef__.REVIEW_INPUT_RATE"
+      ></html:input>
+      <html:input
+        type="text"
+        placeholder="Output USD / million tokens"
+        preference="extensions.zotero.__addonRef__.REVIEW_OUTPUT_RATE"
+      ></html:input>
+    </html:details>
 
     <hbox align="center">
       <label
@@ -20,91 +47,96 @@
       <html:input
         type="password"
         style="flex: 1"
-        preference="extensions.zotero.__addonRef__.ANTHROPIC_API_KEY"
+        data-credential="ANTHROPIC_API_KEY"
       ></html:input>
     </hbox>
-    <hbox align="center">
-      <label
-        data-l10n-id="pref-openai-key"
-        style="display: flex; align-items: center; min-width: 12em"
-      ></label>
-      <html:input
-        type="password"
-        style="flex: 1"
-        preference="extensions.zotero.__addonRef__.OPENAI_API_KEY"
-      ></html:input>
-    </hbox>
-    <hbox align="center">
-      <label
-        data-l10n-id="pref-gemini-key"
-        style="display: flex; align-items: center; min-width: 12em"
-      ></label>
-      <html:input
-        type="password"
-        style="flex: 1"
-        preference="extensions.zotero.__addonRef__.GEMINI_API_KEY"
-      ></html:input>
-    </hbox>
+    <html:details>
+      <html:summary data-l10n-id="pref-optional-providers"></html:summary>
+      <hbox align="center">
+        <label
+          data-l10n-id="pref-openai-key"
+          style="display: flex; align-items: center; min-width: 12em"
+        ></label>
+        <html:input
+          type="password"
+          style="flex: 1"
+          data-credential="OPENAI_API_KEY"
+        ></html:input>
+      </hbox>
+      <hbox align="center">
+        <label
+          data-l10n-id="pref-gemini-key"
+          style="display: flex; align-items: center; min-width: 12em"
+        ></label>
+        <html:input
+          type="password"
+          style="flex: 1"
+          data-credential="GEMINI_API_KEY"
+        ></html:input>
+      </hbox>
+    </html:details>
   </groupbox>
 
   <groupbox>
-    <label><html:h2 data-l10n-id="pref-litdb"></html:h2></label>
-    <description data-l10n-id="pref-litdb-hint"></description>
-    <hbox align="center">
-      <label
-        data-l10n-id="pref-scopus-key"
-        style="display: flex; align-items: center; min-width: 12em"
-      ></label>
-      <html:input
-        type="password"
-        style="flex: 1"
-        preference="extensions.zotero.__addonRef__.SCOPUS_API_KEY"
-      ></html:input>
-    </hbox>
-    <hbox align="center">
-      <label
-        data-l10n-id="pref-scopus-token"
-        style="display: flex; align-items: center; min-width: 12em"
-      ></label>
-      <html:input
-        type="password"
-        style="flex: 1"
-        preference="extensions.zotero.__addonRef__.SCOPUS_INST_TOKEN"
-      ></html:input>
-    </hbox>
-    <hbox align="center">
-      <label
-        data-l10n-id="pref-s2-key"
-        style="display: flex; align-items: center; min-width: 12em"
-      ></label>
-      <html:input
-        type="password"
-        style="flex: 1"
-        preference="extensions.zotero.__addonRef__.S2_API_KEY"
-      ></html:input>
-    </hbox>
-    <hbox align="center">
-      <label
-        data-l10n-id="pref-openalex-email"
-        style="display: flex; align-items: center; min-width: 12em"
-      ></label>
-      <html:input
-        type="text"
-        style="flex: 1"
-        preference="extensions.zotero.__addonRef__.OPENALEX_EMAIL"
-      ></html:input>
-    </hbox>
-    <hbox align="center">
-      <label
-        data-l10n-id="pref-springer-meta-key"
-        style="display: flex; align-items: center; min-width: 12em"
-      ></label>
-      <html:input
-        type="password"
-        style="flex: 1"
-        preference="extensions.zotero.__addonRef__.SPRINGER_META_API_KEY"
-      ></html:input>
-    </hbox>
+    <html:details>
+      <html:summary data-l10n-id="pref-litdb"></html:summary>
+      <description data-l10n-id="pref-litdb-hint"></description>
+      <hbox align="center">
+        <label
+          data-l10n-id="pref-scopus-key"
+          style="display: flex; align-items: center; min-width: 12em"
+        ></label>
+        <html:input
+          type="password"
+          style="flex: 1"
+          data-credential="SCOPUS_API_KEY"
+        ></html:input>
+      </hbox>
+      <hbox align="center">
+        <label
+          data-l10n-id="pref-scopus-token"
+          style="display: flex; align-items: center; min-width: 12em"
+        ></label>
+        <html:input
+          type="password"
+          style="flex: 1"
+          data-credential="SCOPUS_INST_TOKEN"
+        ></html:input>
+      </hbox>
+      <hbox align="center">
+        <label
+          data-l10n-id="pref-s2-key"
+          style="display: flex; align-items: center; min-width: 12em"
+        ></label>
+        <html:input
+          type="password"
+          style="flex: 1"
+          data-credential="S2_API_KEY"
+        ></html:input>
+      </hbox>
+      <hbox align="center">
+        <label
+          data-l10n-id="pref-openalex-email"
+          style="display: flex; align-items: center; min-width: 12em"
+        ></label>
+        <html:input
+          type="text"
+          style="flex: 1"
+          preference="extensions.zotero.__addonRef__.OPENALEX_EMAIL"
+        ></html:input>
+      </hbox>
+      <hbox align="center">
+        <label
+          data-l10n-id="pref-springer-meta-key"
+          style="display: flex; align-items: center; min-width: 12em"
+        ></label>
+        <html:input
+          type="password"
+          style="flex: 1"
+          data-credential="SPRINGER_META_API_KEY"
+        ></html:input>
+      </hbox>
+    </html:details>
   </groupbox>
 
   <groupbox>

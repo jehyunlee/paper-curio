@@ -1,4 +1,29 @@
 # 우클릭 메뉴
+credential-save = OS 키 저장소에 저장 (빈 값은 삭제)
+credential-saved = OS 키 저장소 갱신 완료. 설정에는 참조만 저장합니다.
+credential-runtime-needed = 먼저 paper-curation과 Python keyring 환경을 연결하세요.
+credential-save-failed = OS 키 저장 실패. 평문 설정에는 저장하지 않았습니다.
+feature-menu = Paper Curation 기능 모듈
+feature-route-reading = 읽기 / 내보내기
+feature-route-ai = 논문 AI
+feature-route-collection = 컬렉션 관리
+feature-route-optional = 선택 기능
+feature-intro = 작업을 선택하고 요구사항·실행 계획을 확인한 뒤 실행하세요. 기존 문서 열람은 키가 필요 없고, 생성형 답변은 선택한 제공자만 사용합니다.
+feature-budget-cap = 비용 상한 (USD, 선택)
+feature-input-rate = 입력 100만 토큰당 USD
+feature-output-rate = 출력 100만 토큰당 USD
+feature-plan = 실행 계획 확인
+feature-execute = 선택 작업 실행
+feature-export = 결과 JSON 내보내기
+feature-export-html = 공유용 HTML 보고서 내보내기
+feature-selected-sources = 선택한 PDF 본문 사용
+feature-sources-ready = 선택한 근거 자료 준비 완료. 실행 전 계획을 확인하세요.
+feature-source-failed = 자료 준비 실패. 로컬 PDF 선택과 기능별 입력을 확인하세요.
+feature-use-review = 선택한 Zotero 항목과 설정의 리뷰 제공자·예산을 사용합니다. 각 리뷰는 실행 전 해당 계획을 확인합니다.
+feature-invalid-request = 입력 또는 공통 런타임을 확인하세요. 작업은 실행하지 않았습니다.
+feature-confirm = 아래 제공자·전송 대상·예상비용을 확인하고 이 작업만 실행할까요?
+feature-execution-failed = 작업 실패 또는 런타임 미설정. 다른 모듈은 시작하지 않았습니다.
+feature-runtime-needed = 최신 paper-curation 경로와 Python 3.12를 연결해야 공통 모듈 화면을 열 수 있습니다.
 itemmenu-review = paper-curation Review 생성
 itemmenu-comparison = paper-curation Comparison
 itemmenu-chat = paper-curation AI Chat — single (selected only ?⃝)
@@ -19,7 +44,15 @@ toast-no-provider = LLM API key가 설정되지 않았습니다. Settings → Pa
 
 # 토스트 — 단일
 toast-running = 리뷰 생성 중: { $title }
-toast-done-one = 완료: { $title } (점수 { $score }, { $provider })
+toast-done-one = 리뷰 완료: { $title } (점수 { $score }, { $provider }); 서지 DB 반영 대기
+review-needs-pdf = 리뷰 생성 전에 로컬 논문 PDF를 첨부하세요.
+review-already-running = 다른 데스크톱 리뷰가 실행 중입니다. 완료 후 다시 실행하세요.
+review-preflight-failed = 리뷰에는 paper-curation, Python 3.12와 선택한 제공자의 API 자격증명이 필요합니다.
+review-execution-failed = 리뷰 실행 실패. 다른 제공자는 호출하지 않았습니다.
+review-plan-confirm = "{ $title }"을 아래 계획의 제공자·모델로 리뷰할까요? 선택한 제공자에만 제목·초록·그림 캡션·본문 발췌를 전송합니다. 실행: 추출 → 리뷰 → HTML + 서지 사이드카. 실행 안 함: 분류·의미 검색·타임라인·이메일·배포·서지 DB 반영. 아래 예상비용과 설정된 상한을 확인하고 계속하세요.
+review-cancelled = API 실행 전 취소: { $title }
+review-bookkeeping-failed = 리뷰 파일은 완성됐지만 목록/마커 갱신에 실패했습니다. HTML 직접 열기:
+review-partial-saved = 리뷰 텍스트는 보존했지만 HTML 묶음은 게시하지 못했습니다. 보존된 리뷰:
 toast-skipped = 건너뜀(이미 review 있음): { $title } — 덮어쓰려면 설정에서 'Overwrite existing' 활성화
 toast-fail = 실패: { $title } — { $err }
 
@@ -27,7 +60,7 @@ toast-fail = 실패: { $title } — { $err }
 toast-batch-header = 일괄 리뷰 생성 ({ $n }건)
 toast-pending = 대기 중: { $title }
 toast-running-batch = 처리 중 ({ $i }/{ $n }): { $title }
-toast-done-line = 완료: { $title } ({ $score })
+toast-done-line = 리뷰 완료: { $title } ({ $score }); 서지 DB 반영 대기
 toast-batch-summary = 완료 — 성공 { $ok } / 건너뜀 { $skip } / 실패 { $fail } / 중단 { $abort }
 
 # 컬렉션 메뉴 — 웹 배포

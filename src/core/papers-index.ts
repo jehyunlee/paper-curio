@@ -1,4 +1,4 @@
-import { joinPath, readJson, writeJson, listDir } from "../utils/fs"
+import { joinPath, readJson, listDir } from "../utils/fs"
 
 export interface PaperIndexEntry {
   slug: string
@@ -98,7 +98,10 @@ export async function buildConnectionCandidates(
 ): Promise<{ slug: string; title: string; essence: string; date: string }[]> {
   const idx = await readPapersIndex(papersDir)
   const targetWords = new Set(
-    (target.title || "").toLowerCase().split(/\W+/).filter((w) => w.length >= 4),
+    (target.title || "")
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((w) => w.length >= 4),
   )
   const targetAuthors = new Set(target.authors.map((a) => a.toLowerCase()))
   const targetYear = parseInt((target.date || "").slice(0, 4), 10)
@@ -108,7 +111,10 @@ export async function buildConnectionCandidates(
     .map((e) => {
       let score = 0
       const ew = new Set(
-        (e.title || "").toLowerCase().split(/\W+/).filter((w) => w.length >= 4),
+        (e.title || "")
+          .toLowerCase()
+          .split(/\W+/)
+          .filter((w) => w.length >= 4),
       )
       for (const w of targetWords) if (ew.has(w)) score += 2
       const ea = (e.authors || []).map((a) => String(a).toLowerCase())
@@ -130,63 +136,4 @@ export async function buildConnectionCandidates(
     essence: typeof e.essence === "string" ? e.essence : "",
     date: e.date,
   }))
-}
-
-/**
- * 덮어쓰기 시 인덱스 엔트리 머지: 기존 엔트리의 분류·figure 등 풍부한 필드는
- * 보존하고, Paper Curio가 새로 만든 필드(score·essence·review_date·tags 등)만 갱신.
- */
-export function mergeEntry(
-  existing: PaperIndexEntry | undefined,
-  fresh: PaperIndexEntry,
-): PaperIndexEntry {
-  if (!existing) return fresh
-  // topics/primary_topic 은 Paper Curio(Zotero collection 기반)가 권위 — fresh 의
-  // 캐노니컬 토픽이 기존(옛 slug 등)을 덮는다. 단 fresh 가 uncategorized 뿐이면 기존
-  // 보존(수동 분류·paper-curation 풀런 enrich 를 지움 방지).
-  const freshReal = (fresh.topics || []).some((t) => t && t !== "uncategorized")
-  const topics = freshReal ? fresh.topics : existing.topics || fresh.topics
-  const primary_topic = freshReal
-    ? fresh.primary_topic
-    : existing.primary_topic || fresh.primary_topic
-  // 토픽이 바뀌면 옛 slug 의 stale classifications/태그를 정리. classifications 는
-  // 현재 topics 키만 보존(이후 classify 단계가 primary 토픽 분류를 다시 채운다).
-  const keep = new Set(topics || [])
-  const classifications = Object.fromEntries(
-    Object.entries(existing.classifications || {}).filter(([k]) => keep.has(k)),
-  ) as PaperIndexEntry["classifications"]
-  const oldTopics = new Set(existing.topics || [])
-  const keptTags = (existing.tags || []).filter((t) => !oldTopics.has(t))
-  return {
-    ...existing, // pdf_path, has_figures, text_md_sha256 등 보존
-    topics,
-    primary_topic,
-    classifications,
-    title: fresh.title,
-    authors: fresh.authors,
-    date: fresh.date,
-    doi: fresh.doi || existing.doi,
-    score: fresh.score,
-    essence: fresh.essence,
-    has_pdf: fresh.has_pdf,
-    review_date: fresh.review_date,
-    zotero_item_key: fresh.zotero_item_key || existing.zotero_item_key,
-    tags: Array.from(new Set([...keptTags, ...fresh.tags])),
-  }
-}
-
-/** 엔트리 추가/갱신 (slug·doi·zoteroKey 동일 항목은 교체). */
-export async function upsertEntry(
-  papersDir: string,
-  entry: PaperIndexEntry,
-): Promise<void> {
-  const idx = await readPapersIndex(papersDir)
-  const filtered = idx.filter(
-    (e) =>
-      e.slug !== entry.slug &&
-      !(entry.doi && e.doi === entry.doi) &&
-      !(entry.zotero_item_key && e.zotero_item_key === entry.zotero_item_key),
-  )
-  filtered.push(entry)
-  await writeJson(indexPath(papersDir), filtered)
 }

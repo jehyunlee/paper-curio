@@ -1,16 +1,20 @@
 pref-api-keys = API Keys
-pref-api-keys-hint = Priority: environment variable → this field. Tried in order Anthropic → OpenAI → Gemini. Leave blank if set via env var.
+pref-api-keys-hint = Select one review provider. There is no cross-provider fallback. Keys are stored in the shared OS keyring, not Zotero preferences; injected environment values take precedence.
+pref-review-provider = Review provider
+pref-review-budget = Review cost ceiling (optional)
+pref-review-budget-hint = A ceiling requires your current provider input/output rates. Unknown rates or an estimate over the ceiling block execution. Blank ceiling means no budget cap.
+pref-optional-providers = Other chat providers and optional features
 pref-anthropic-key = Anthropic API Key
 pref-openai-key = OpenAI API Key
 pref-gemini-key = Gemini API Key
 
-pref-models = Models
+pref-models = Chat models (review models follow the selected provider contract)
 pref-anthropic-model = Anthropic Model
 pref-openai-model = OpenAI Model
 pref-gemini-model = Gemini Model
 
 pref-output = Output Location
-pref-output-hint = If paper-curation is installed, leave the root path to auto-detect (or set it explicitly). Otherwise set a fallback dir; reviews are written under <dir>/docs/papers/.
+pref-output-hint = Reviews require an updated paper-curation checkout and Python 3.12. Set its root path or use auto-detection. Fallback directories support existing corpus browsing, not the shared review engine.
 pref-pc-root = paper-curation root
 pref-fallback-dir = Fallback output dir
 pref-overwrite =

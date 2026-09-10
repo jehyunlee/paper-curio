@@ -1,7 +1,7 @@
 {
   "name": "paper-curio",
-  "version": "0.9.3",
-  "description": "Generate paper-curation reviews for Zotero items (Anthropic / OpenAI / Gemini)",
+  "version": "0.10.0",
+  "description": "Chat with papers and generate Sonnet reviews through the shared paper-curation engine",
   "config": {
     "addonName": "Paper Curio",
     "addonID": "paper-curio@jehyun.lee",
@@ -14,7 +14,7 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "zotero-plugin serve",
-    "test": "node test/normalizeReviewPayload.test.mjs",
+    "test": "node test/normalizeReviewPayload.test.mjs && node test/localReview.test.mjs && node test/credentials.test.mjs && node test/featureReport.test.mjs && node test/preferences.test.mjs",
     "build": "tsc --noEmit && zotero-plugin build",
     "build-only": "zotero-plugin build",
     "stop": "node scripts/stop.mjs",

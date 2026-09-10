@@ -1,6 +1,7 @@
 import { config } from "../../package.json"
 import { initLocale } from "../utils/locale"
-import { injectEnvSecrets } from "../utils/env"
+import { loadSharedCredentials } from "../utils/env"
+import { tryResolveOutputTarget } from "../core/pc-discovery"
 import { registerPrefs, onPrefsLoad } from "./preferences"
 import {
   registerItemMenu,
@@ -17,7 +18,8 @@ async function onStartup() {
     Zotero.uiReadyPromise,
   ])
   initLocale()
-  injectEnvSecrets()
+  const target = await tryResolveOutputTarget()
+  if (target) await loadSharedCredentials(target.root)
   registerPrefs()
 
   // 이미 열린 메인 윈도우에 메뉴 등록

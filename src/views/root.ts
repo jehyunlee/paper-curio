@@ -2,12 +2,14 @@ import { config } from "../../package.json"
 import { getString } from "../utils/locale"
 import { getSelectedRegularItems } from "../apis/zotero/item"
 import { processItem } from "../core/pipeline"
-import { hasAnyProvider, configuredProviders } from "../llm"
+import { hasAnyProvider } from "../llm"
 import { menu as log } from "../utils/loggers"
-import { resolveOutputTarget, tryResolveOutputTarget } from "../core/pc-discovery"
+import {
+  resolveOutputTarget,
+  tryResolveOutputTarget,
+} from "../core/pc-discovery"
 import {
   deployViaBridge,
-  compareViaBridge,
   runFullViaBridge,
   registerCollectionViaBridge,
   citedbyViaBridge,
@@ -15,9 +17,13 @@ import {
 import { topicForCollection, resolveCollectionTopic } from "../core/categorize"
 import { findExisting } from "../core/papers-index"
 import { joinPath, pathExists, readJson } from "../utils/fs"
-import { registerCitingPapers, attachAvailablePdfs } from "../apis/zotero/register"
+import {
+  registerCitingPapers,
+  attachAvailablePdfs,
+} from "../apis/zotero/register"
 import type { CitingPaper } from "../apis/zotero/register"
 import { openChatForSelection, openComparativeStudy } from "./chat"
+import { openFeaturePanel } from "./features"
 
 declare const Services: any
 
@@ -30,11 +36,25 @@ const COMPARE_STUDY_ID = `${config.addonRef}-itemmenu-compare-study`
 const CITEDBY_ID = `${config.addonRef}-itemmenu-citedby`
 const DEPLOY_ID = `${config.addonRef}-collectionmenu-deploy`
 const RUN_FULL_ID = `${config.addonRef}-collectionmenu-runfull`
-const COMPARE_MAX = 6
+const FEATURES_ID = `${config.addonRef}-itemmenu-features`
 
 /** onMainWindowLoad에서 호출. 우클릭(item) 컨텍스트 메뉴에 단일 항목 등록. */
 export function registerItemMenu(): void {
   ztoolkit.Menu.register("item", { tag: "menuseparator", id: SEP_ID })
+  ztoolkit.Menu.register("item", {
+    tag: "menuitem",
+    id: FEATURES_ID,
+    label: getString("feature-menu"),
+    commandListener: () => {
+      void openFeaturePanel().catch(() => {
+        Services.prompt.alert(
+          Zotero.getMainWindow(),
+          "Paper Curio",
+          getString("feature-runtime-needed"),
+        )
+      })
+    },
+  })
   ztoolkit.Menu.register("item", {
     tag: "menuitem",
     id: MENU_ID,
@@ -77,7 +97,13 @@ export function registerItemMenu(): void {
     label: getString("itemmenu-comparison"),
     icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
     commandListener: () => {
-      void onCompareCommand()
+      void openFeaturePanel("comparison").catch(() => {
+        Services.prompt.alert(
+          Zotero.getMainWindow(),
+          "Paper Curio",
+          getString("feature-runtime-needed"),
+        )
+      })
     },
   })
   ztoolkit.Menu.register("item", {
@@ -188,6 +214,7 @@ function attachMenuTip(id: string, tip: string): void {
 
 export function unregisterItemMenu(): void {
   try {
+    ztoolkit.Menu.unregister(FEATURES_ID)
     ztoolkit.Menu.unregister(MENU_ID)
     ztoolkit.Menu.unregister(OPEN_REVIEW_ID)
     ztoolkit.Menu.unregister(CHAT_ID)
@@ -195,7 +222,9 @@ export function unregisterItemMenu(): void {
     ztoolkit.Menu.unregister(COMPARE_ID)
     ztoolkit.Menu.unregister(CITEDBY_ID)
     ztoolkit.Menu.unregister(SEP_ID)
-    Zotero.getMainWindow()?.document?.getElementById("papercurio-menu-tip")?.remove()
+    Zotero.getMainWindow()
+      ?.document?.getElementById("papercurio-menu-tip")
+      ?.remove()
   } catch {
     /* ignore */
   }
@@ -244,7 +273,11 @@ function toast(headline: string) {
 async function requirePaperCuration(): Promise<boolean> {
   if (await tryResolveOutputTarget()) return true
   toast(config.addonName)
-    .createLine({ type: "fail", text: getString("toast-need-pc"), progress: 100 })
+    .createLine({
+      type: "fail",
+      text: getString("toast-need-pc"),
+      progress: 100,
+    })
     .show()
     .startCloseTimer(8000)
   return false
@@ -265,19 +298,7 @@ async function onReviewCommand(): Promise<void> {
     return
   }
 
-  // provider 미설정 → 안내
-  if (!hasAnyProvider()) {
-    toast(config.addonName)
-      .createLine({
-        type: "fail",
-        text: getString("toast-no-provider"),
-        progress: 100,
-      })
-      .show()
-      .startCloseTimer(6000)
-    return
-  }
-  log("configured providers:", configuredProviders().join(", "))
+  // The shared engine reports the selected review capability's requirements.
   if (!(await requirePaperCuration())) return
 
   // ── 단일 ──
@@ -293,18 +314,35 @@ async function onReviewCommand(): Promise<void> {
       .show()
     try {
       const r = await processItem(item)
-      if (r.skipped) {
+      if (r.status === "partial") {
         pw.changeLine({
           type: "default",
-          text: getString("toast-skipped", { args: { title: r.title } }),
+          text: `${getString("review-bookkeeping-failed")} ${r.indexHtmlPath} (${r.recovery})`,
+          progress: 100,
+        })
+      } else if (r.skipped) {
+        pw.changeLine({
+          type: "default",
+          text: getString(
+            r.skipReason === "cancelled" ? "review-cancelled" : "toast-skipped",
+            { args: { title: r.title } },
+          ),
           progress: 100,
         })
       } else {
         pw.changeLine({
           type: "success",
-          text: getString("toast-done-one", {
-            args: { title: r.title, score: r.score, provider: r.provider },
-          }),
+          text:
+            getString("toast-done-one", {
+              args: {
+                title: r.title,
+                score: r.score ?? "n/a",
+                provider: r.provider,
+              },
+            }) +
+            (r.bookkeeping === "failed"
+              ? ` — ${getString("review-bookkeeping-failed")} ${r.indexHtmlPath}`
+              : ""),
           progress: 100,
         })
       }
@@ -337,7 +375,9 @@ async function onReviewCommand(): Promise<void> {
   for (const it of targets) {
     pw.createLine({
       type: "default",
-      text: getString("toast-pending", { args: { title: it.getDisplayTitle() } }),
+      text: getString("toast-pending", {
+        args: { title: it.getDisplayTitle() },
+      }),
       progress: 0,
     })
   }
@@ -367,12 +407,23 @@ async function onReviewCommand(): Promise<void> {
     })
     try {
       const r = await processItem(item)
-      if (r.skipped) {
+      if (r.status === "partial") {
+        fail++
+        pw.changeLine({
+          idx: i,
+          type: "default",
+          text: `${getString("review-bookkeeping-failed")} ${r.indexHtmlPath} (${r.recovery})`,
+          progress: 100,
+        })
+      } else if (r.skipped) {
         skip++
         pw.changeLine({
           idx: i,
           type: "default",
-          text: getString("toast-skipped", { args: { title: r.title } }),
+          text: getString(
+            r.skipReason === "cancelled" ? "review-cancelled" : "toast-skipped",
+            { args: { title: r.title } },
+          ),
           progress: 100,
         })
       } else {
@@ -380,9 +431,13 @@ async function onReviewCommand(): Promise<void> {
         pw.changeLine({
           idx: i,
           type: "success",
-          text: getString("toast-done-line", {
-            args: { title: r.title, score: r.score },
-          }),
+          text:
+            getString("toast-done-line", {
+              args: { title: r.title, score: r.score ?? "n/a" },
+            }) +
+            (r.bookkeeping === "failed"
+              ? ` — ${getString("review-bookkeeping-failed")} ${r.indexHtmlPath}`
+              : ""),
           progress: 100,
         })
       }
@@ -412,7 +467,11 @@ async function onOpenReviewCommand(): Promise<void> {
   if (!(await requirePaperCuration())) return
   if (targets.length === 0) {
     toast(config.addonName)
-      .createLine({ type: "fail", text: getString("toast-no-items"), progress: 100 })
+      .createLine({
+        type: "fail",
+        text: getString("toast-no-items"),
+        progress: 100,
+      })
       .show()
       .startCloseTimer(4000)
     return
@@ -456,129 +515,6 @@ async function onOpenReviewCommand(): Promise<void> {
     .startCloseTimer(opened > 0 ? 4000 : 6000)
 }
 /** 2편 이상 선택 → (리뷰 없는 논문은 자동 생성) → 비교 HTML → 브라우저 오픈. */
-async function onCompareCommand(): Promise<void> {
-  const targets = getSelectedRegularItems()
-  if (!(await requirePaperCuration())) return
-  if (targets.length < 2 || targets.length > COMPARE_MAX) {
-    toast(config.addonName)
-      .createLine({
-        type: "fail",
-        text: getString(
-          targets.length < 2 ? "toast-compare-need-two" : "toast-compare-too-many",
-          { args: { max: COMPARE_MAX } },
-        ),
-        progress: 100,
-      })
-      .show()
-      .startCloseTimer(5000)
-    return
-  }
-
-  const target = await resolveOutputTarget()
-  // 선택 순서가 P1, P2, ... 번호가 되므로 슬롯으로 순서를 보존한다.
-  const slotSlugs: (string | null)[] = []
-  const pending: { idx: number; item: Zotero.Item }[] = []
-  for (const it of targets) {
-    const entry = await findExisting(target.papersDir, {
-      doi: String(it.getField("DOI") || ""),
-      zoteroKey: it.key,
-      title: it.getDisplayTitle(),
-    })
-    if (entry?.slug) {
-      slotSlugs.push(entry.slug)
-    } else {
-      slotSlugs.push(null)
-      pending.push({ idx: slotSlugs.length - 1, item: it })
-    }
-  }
-
-  // 리뷰 자동 생성에는 LLM provider 가 필요하다 (Review 커맨드와 동일 가드).
-  if (pending.length && !hasAnyProvider()) {
-    toast(config.addonName)
-      .createLine({
-        type: "fail",
-        text: getString("toast-no-provider"),
-        progress: 100,
-      })
-      .show()
-      .startCloseTimer(6000)
-    return
-  }
-
-  const pw = toast(config.addonName)
-    .createLine({
-      type: "default",
-      text: pending.length
-        ? getString("toast-compare-prereview", { args: { n: pending.length } })
-        : getString("toast-compare-running", { args: { n: targets.length } }),
-      progress: 10,
-    })
-    .show()
-
-  // 리뷰 없는 논문은 기존 리뷰 파이프라인으로 먼저 생성 (순차).
-  for (let i = 0; i < pending.length; i++) {
-    const { idx, item } = pending[i]
-    const title = item.getDisplayTitle()
-    pw.changeLine({
-      type: "default",
-      text: getString("toast-running-batch", {
-        args: { i: i + 1, n: pending.length, title },
-      }),
-      progress: 10 + Math.round((40 * i) / pending.length),
-    })
-    try {
-      const r = await processItem(item)
-      slotSlugs[idx] = r.slug
-    } catch (e: any) {
-      pw.changeLine({
-        type: "fail",
-        text: getString("toast-compare-prereview-fail", {
-          args: { title, err: String(e?.message ?? e) },
-        }),
-        progress: 100,
-      })
-      log("compare 사전 리뷰 실패", e)
-      pw.startCloseTimer(10000)
-      return
-    }
-  }
-
-  const slugs = slotSlugs.filter((s): s is string => !!s)
-  pw.changeLine({
-    type: "default",
-    text: getString("toast-compare-running", { args: { n: slugs.length } }),
-    progress: 55,
-  })
-  try {
-    const r = await compareViaBridge(slugs, target.root)
-    if (r.ok && r.html) {
-      pw.changeLine({
-        type: "success",
-        text: getString("toast-compare-done"),
-        progress: 100,
-      })
-      ;(Zotero as any).launchFile(r.html)
-    } else {
-      pw.changeLine({
-        type: "fail",
-        text: getString("toast-compare-fail", {
-          args: { err: String(r.reason ?? "") },
-        }),
-        progress: 100,
-      })
-    }
-  } catch (e: any) {
-    pw.changeLine({
-      type: "fail",
-      text: getString("toast-compare-fail", {
-        args: { err: String(e?.message ?? e) },
-      }),
-      progress: 100,
-    })
-    log("onCompareCommand 예외", e)
-  }
-  pw.startCloseTimer(8000)
-}
 
 /**
  * 선택 논문의 DOI 로 인용논문을 분석한다 (citedby).
@@ -743,7 +679,6 @@ async function maybeRegisterCitingPapers(papersJson: string): Promise<void> {
     getString("citedby-register-msg", { args: { n: papers.length } }),
   )
   if (!confirmed) return
-
 
   const pw = toast(config.addonName)
     .createLine({

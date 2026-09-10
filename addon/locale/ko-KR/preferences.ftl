@@ -1,16 +1,20 @@
 pref-api-keys = API 키
-pref-api-keys-hint = 우선순위: 환경변수 → 이 입력칸. Anthropic → OpenAI → Gemini 순으로 시도합니다. 환경변수로 설정했다면 비워두세요.
+pref-api-keys-hint = 리뷰 제공자 하나를 선택하세요. 다른 제공자로 자동 전송하지 않습니다. 키는 Zotero 설정이 아닌 공통 OS 키 저장소에 저장하며 주입된 환경변수가 우선합니다.
+pref-review-provider = 리뷰 제공자
+pref-review-budget = 리뷰 비용 상한 (선택)
+pref-review-budget-hint = 상한을 설정하면 현재 제공자의 입력/출력 단가도 필요합니다. 단가 미확정 또는 예상 상한 초과 시 실행을 차단합니다. 상한이 비어 있으면 예산 제한이 없습니다.
+pref-optional-providers = 다른 대화 제공자 및 선택 기능
 pref-anthropic-key = Anthropic API Key
 pref-openai-key = OpenAI API Key
 pref-gemini-key = Gemini API Key
 
-pref-models = 모델
+pref-models = 대화 모델 (리뷰 모델은 선택한 제공자 계약 사용)
 pref-anthropic-model = Anthropic 모델
 pref-openai-model = OpenAI 모델
 pref-gemini-model = Gemini 모델
 
 pref-output = 출력 위치
-pref-output-hint = paper-curation이 설치돼 있으면 root 경로를 비워두면 자동 탐색합니다(직접 지정도 가능). 없으면 fallback 경로를 지정하세요 — 리뷰는 <경로>/docs/papers/ 아래에 생성됩니다.
+pref-output-hint = 리뷰에는 최신 paper-curation과 Python 3.12가 필요합니다. 루트 경로를 지정하거나 자동 탐색을 사용하세요. Fallback 경로는 기존 코퍼스 열람용이며 공통 리뷰 엔진은 제공하지 않습니다.
 pref-pc-root = paper-curation 루트 경로
 pref-fallback-dir = Fallback 출력 경로
 pref-overwrite =

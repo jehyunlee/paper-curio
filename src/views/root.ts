@@ -24,6 +24,7 @@ import {
 import type { CitingPaper } from "../apis/zotero/register"
 import { openChatForSelection, openComparativeStudy } from "./chat"
 import { openFeaturePanel } from "./features"
+import { reviewErrorMessage } from "../utils/reviewError"
 
 declare const Services: any
 
@@ -41,20 +42,6 @@ const FEATURES_ID = `${config.addonRef}-itemmenu-features`
 /** onMainWindowLoad에서 호출. 우클릭(item) 컨텍스트 메뉴에 단일 항목 등록. */
 export function registerItemMenu(): void {
   ztoolkit.Menu.register("item", { tag: "menuseparator", id: SEP_ID })
-  ztoolkit.Menu.register("item", {
-    tag: "menuitem",
-    id: FEATURES_ID,
-    label: getString("feature-menu"),
-    commandListener: () => {
-      void openFeaturePanel().catch(() => {
-        Services.prompt.alert(
-          Zotero.getMainWindow(),
-          "Paper Curio",
-          getString("feature-runtime-needed"),
-        )
-      })
-    },
-  })
   ztoolkit.Menu.register("item", {
     tag: "menuitem",
     id: MENU_ID,
@@ -113,6 +100,21 @@ export function registerItemMenu(): void {
     icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
     commandListener: () => {
       void onCitedbyCommand()
+    },
+  })
+  ztoolkit.Menu.register("item", {
+    tag: "menuitem",
+    id: FEATURES_ID,
+    label: getString("feature-menu"),
+    icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
+    commandListener: () => {
+      void openFeaturePanel().catch(() => {
+        Services.prompt.alert(
+          Zotero.getMainWindow(),
+          "Paper Curio",
+          getString("feature-runtime-needed"),
+        )
+      })
     },
   })
   // 메뉴 hover 말풍선 — XUL은 menupopup 내부의 tooltiptext를 표시하지 않는다
@@ -350,7 +352,7 @@ async function onReviewCommand(): Promise<void> {
       pw.changeLine({
         type: "fail",
         text: getString("toast-fail", {
-          args: { title, err: String(e?.message ?? e) },
+          args: { title, err: reviewErrorMessage(e) },
         }),
         progress: 100,
       })
@@ -447,7 +449,7 @@ async function onReviewCommand(): Promise<void> {
         idx: i,
         type: "fail",
         text: getString("toast-fail", {
-          args: { title, err: String(e?.message ?? e) },
+          args: { title, err: reviewErrorMessage(e) },
         }),
         progress: 100,
       })

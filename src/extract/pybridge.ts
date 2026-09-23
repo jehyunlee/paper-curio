@@ -11,6 +11,7 @@ import {
 } from "../utils/env"
 import { joinPath, writeText } from "../utils/fs"
 import { fs as log } from "../utils/loggers"
+import { ReviewTaskError, ReviewErrorCode } from "../utils/reviewError"
 import type { PaperMeta } from "../apis/zotero/item"
 import type { ConnItem } from "../render/reviewHtml"
 
@@ -880,11 +881,20 @@ export async function corpusViaBridge(
       data.op !== request.op ||
       data.status !== "completed"
     ) {
-      throw new Error(
+      const codes = [
+        "invalid-slug",
+        "invalid-index",
+        "identity-conflict",
+        "filesystem-error",
+        "invalid-request",
+      ]
+      const code =
         data?.status === "busy"
-          ? "Corpus writer is busy; retry after it finishes"
-          : "Corpus transaction failed",
-      )
+          ? "corpus-busy"
+          : codes.includes(data?.error_code)
+            ? `corpus-${data.error_code}`
+            : "corpus-invalid-request"
+      throw new ReviewTaskError(code as ReviewErrorCode)
     }
     return data
   } finally {
@@ -1623,43 +1633,6 @@ export async function integrateViaBridge(
 }
 
 /** 다중 논문 비교 — compare_papers.run_compare. 성공 시 생성된 HTML 절대경로 반환. */
-export async function compareViaBridge(
-  slugs: string[],
-  pcRoot: string,
-): Promise<{ ok: boolean; html?: string; title?: string; reason?: string }> {
-  if (!pcRoot || slugs.length < 2)
-    return { ok: false, reason: "need_two_slugs" }
-  try {
-    const script = await ensureBridgeScript()
-    const env: Record<string, string> = {}
-    const a = getAnthropicKey()
-    if (a) env.ANTHROPIC_API_KEY = a
-    const g = getGeminiKey()
-    if (g) {
-      // Audio Overview 위젯에 키를 굽기 위해 (없으면 위젯이 브라우저에서 프롬프트)
-      env.GOOGLE_API_KEY = g
-      env.GEMINI_API_KEY = g
-    }
-    // 설정 토글 "논문 비교 그림 생성" — OFF면 PaperBanana 다이어그램 스킵 (수십 초로 단축)
-    if (getPref("COMPARE_IMAGE") === false) env.COMPARE_IMAGE = "0"
-    const r = await runPython([script, pcRoot, "compare", slugs.join(",")], env)
-    const j = lastJson(r.stdout)
-    if (r.ok && j?.ok) return { ok: true, html: j.html, title: j.title }
-    log(
-      "compare 브리지 실패",
-      `code=${r.code}`,
-      String(j?.reason ?? ""),
-      r.stderr.slice(0, 200),
-    )
-    return {
-      ok: false,
-      reason: String(j?.reason ?? r.stderr.slice(-300) ?? "unknown"),
-    }
-  } catch (e) {
-    log("compareViaBridge 예외", e)
-    return { ok: false, reason: String(e) }
-  }
-}
 
 export interface CitedbyResult {
   /** 로컬 서버 URL — Deep Research 패널은 여기서만 동작한다. */

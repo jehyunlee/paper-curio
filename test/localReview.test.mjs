@@ -60,6 +60,9 @@ try {
         setup(builder) {
           builder.onResolve({ filter: /^\./ }, ({ path, importer }) => {
             if (!importer) return
+            if (path === "../utils/reviewError") return
+            if (path === "./locale")
+              return { path: "../utils/locale", namespace: "mock" }
             assert.ok(
               path in modules,
               `Unexpected dependency in minimal review: ${path}`,
@@ -208,7 +211,7 @@ try {
 
   reset()
   state.pdf = null
-  await assert.rejects(processItem(item), /review-needs-pdf/)
+  await assert.rejects(processItem(item), /needs-pdf/)
   assert.equal(state.calls.length, 0)
 
   reset()
@@ -252,6 +255,7 @@ try {
     "../utils/fs":
       "export const joinPath = (...parts) => parts.join('/'); export const writeText = async (path, value) => globalThis.bridge.files.set(path, value)",
     "../utils/loggers": "export const fs = () => {}",
+    "../utils/locale": "export const getString = id => id",
   }
   await build({
     entryPoints: ["src/extract/pybridge.ts"],
@@ -264,6 +268,9 @@ try {
         setup(builder) {
           builder.onResolve({ filter: /^\./ }, ({ path, importer }) => {
             if (!importer) return
+            if (path === "../utils/reviewError") return
+            if (path === "./locale")
+              return { path: "../utils/locale", namespace: "mock" }
             assert.ok(
               path in bridgeModules,
               `Unexpected bridge import: ${path}`,
@@ -329,7 +336,9 @@ try {
       },
     }),
   }
-  const { localReviewViaBridge } = await import(join(dir, "bridge.mjs"))
+  const { localReviewViaBridge, corpusViaBridge } = await import(
+    join(dir, "bridge.mjs")
+  )
   const request = {
     schema_version: 1,
     feature: "review",
@@ -355,8 +364,34 @@ try {
   assert.equal(bridge.request.includes("sentinel-anthropic-key"), false)
   assert.equal(bridge.files.size, 0)
 
+  bridge.exit = 1
+  bridge.response = {
+    schema_version: 1,
+    op: "reserve",
+    status: "failed",
+    error_code: "invalid-slug",
+    error: "DO-NOT-SHOW-RAW-BACKEND-TEXT",
+  }
+  await assert.rejects(
+    corpusViaBridge("/pc", {
+      op: "reserve",
+      papers_dir: "/out",
+      identity: { key: "A" },
+    }),
+    (error) =>
+      error.code === "corpus-invalid-slug" &&
+      !error.message.includes("DO-NOT-SHOW"),
+  )
+  assert.equal(bridge.files.size, 0)
+
   bridge.exit = 2
-  bridge.response.status = "needs-key"
+  bridge.response = {
+    schema_version: 1,
+    feature: "review",
+    provider: "anthropic",
+    model: "claude-sonnet-5",
+    status: "needs-key",
+  }
   assert.equal(
     (await localReviewViaBridge("/pc", request, false)).status,
     "needs-key",

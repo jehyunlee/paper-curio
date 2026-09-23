@@ -1,9 +1,24 @@
 # Right-click menu
+review-error-no-selection = Select a paper item in Zotero, not only its PDF attachment, then reopen Modules.
+feature-review-selected = Review selected papers…
+review-error-needs-pdf = Attach an accessible local PDF to the selected paper.
+review-error-needs-key = Configure the selected review provider's credential in the shared OS keyring or environment.
+review-error-needs-runtime = Check the paper-curation checkout, Python 3.12 and the selected provider's dependencies.
+review-error-insufficient-data = The PDF is missing, unreadable, or does not match the selected paper metadata.
+review-error-budget-exceeded = The review estimate exceeds the configured cost ceiling. No model call was made.
+review-error-budget-unavailable = The configured cost ceiling requires valid provider rates.
+review-error-failed = The review request failed. No alternative provider was called.
+review-error-corpus-busy = Another corpus writer or reservation is active. Retry after it finishes.
+review-error-corpus-invalid-slug = The corpus contains a rejected directory name. Check the backend version and corpus naming validation.
+review-error-corpus-invalid-index = The paper index is invalid. Repair the index before generating a review.
+review-error-corpus-identity-conflict = The existing corpus identity conflicts with this Zotero record. Resolve the metadata conflict before overwriting.
+review-error-corpus-filesystem-error = The corpus could not be read or written. Check its path and permissions.
+review-error-corpus-invalid-request = Corpus reservation or registration was rejected. Check the shared backend version and request contract.
 credential-save = Save to OS keyring (empty removes)
 credential-saved = OS keyring updated. Only the reference is stored in settings.
 credential-runtime-needed = Configure paper-curation and its Python keyring runtime first.
 credential-save-failed = OS keyring failed. Nothing was saved to plaintext settings.
-feature-menu = Paper Curation modules
+feature-menu = (adv.) run Paper Curation modules
 feature-route-reading = Read / export
 feature-route-ai = Paper AI
 feature-route-collection = Collection

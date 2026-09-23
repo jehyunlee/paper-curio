@@ -14,7 +14,7 @@ Settings retain only `credential:<provider>` references; values live in the OS k
 
 Local reviews currently require macOS/Linux with `fcntl` locking. Windows local reviews are not supported yet; existing document browsing and chat are separate features.
 
-A Zotero 9 plugin for **chatting directly with paper PDFs (AI Chat), comparing multiple papers (Comparative Chat), and processing entire Zotero collections as paper-curation topics.** AI Chat works immediately after installation with just one LLM API key (Anthropic, OpenAI, or Gemini).
+A Zotero 9 / 10 plugin for **chatting directly with paper PDFs (AI Chat), comparing multiple papers (Comparative Chat), and processing entire Zotero collections as paper-curation topics.** AI Chat works immediately after installation with just one LLM API key (Anthropic, OpenAI, or Gemini).
 
 Connecting [**paper-curation**](https://github.com/jehyunlee/paper-curation) enables **shared reviews, grounded comparisons/summaries, OS credential storage, related-paper analysis, inline figures, optional modules and full collection processing**. Full processing and image generation remain separate tasks, not automatic post-review steps. All entry points are in the context menu.
 
@@ -33,13 +33,39 @@ Connecting [**paper-curation**](https://github.com/jehyunlee/paper-curation) ena
 
 Light mode caches PDF text locally for instant reopening. Enhanced mode first reads the `text.md` and `figures/` already extracted by paper-curation, reducing preparation time for the first response.
 
+## Five-minute start — where each setting lives
+
+![Three usage paths](https://raw.githubusercontent.com/jehyunlee/paper-curation/master/usage_workflow.en.png)
+
+| Step | Where                                                 | What                                                                                                                                                                                     |
+| ---- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Terminal                                              | Clone [paper-curation](https://github.com/jehyunlee/paper-curation) → `conda` `py312` → `pip install -r requirements.txt` → `python pipeline/setup.py` (no key needed)                   |
+| 2    | Zotero → Tools → Plugins                              | Install `paper-curio.xpi` as described under **Installation** below                                                                                                                      |
+| 3    | Zotero → Settings → Paper Curio → **Output Location** | Set **paper-curation root** to the folder from step 1 (leave **Python path** empty for `py312`)                                                                                          |
+| 4    | Zotero → Settings → Paper Curio → **API Keys**        | Pick one **Review provider** → paste the key → **Save to OS keyring**. Optionally set the **Review cost ceiling** and rates                                                              |
+| 5    | Right-click a paper item in the library               | **paper-curation Review generation** → check the plan (provider, output path, cost) → execute                                                                                            |
+| 6    | Right-click → **Paper Curation modules**              | Summary/chat/comparison (Paper AI), indexes/metrics/bibliography (Collection), audio/timelines/publish/email (Optional features), each card via **Inspect plan → Execute selected task** |
+
+Screen fields, output locations and the meaning of status messages (`needs-key`, `busy`,
+**bibliography DB integration pending**, …) are in the
+📘 **[User Guide](https://github.com/jehyunlee/paper-curation/blob/master/docs/user-guide.en.md)**.
+
 ## Installation
 
 ### Users — install from a release (recommended)
 
-1. Download **`paper-curio.xpi`** from the **[latest release](https://github.com/jehyunlee/paper-curio/releases/latest)**.
-2. In Zotero 9, choose **Tools → Plugins → gear menu (upper right) → Install Plugin From File…**, then select the downloaded `paper-curio.xpi`.
-3. Subsequent updates are **automatic**: Zotero retrieves new versions using the release's `update.json` manifest.
+Every release ships **one XPI per Zotero major version**. Pick the file that matches your Zotero (**Help → About Zotero**). Both are built from the same source with the same features; only the Zotero compatibility range differs.
+
+| Your Zotero | Download | Notes |
+|---|---|---|
+| **10.x** | **[`paper-curio-zotero10.xpi`](https://github.com/jehyunlee/paper-curio/releases/latest/download/paper-curio-zotero10.xpi)** | Available from v0.11.0 |
+| **9.x** (also 7 / 8) | **[`paper-curio-zotero9.xpi`](https://github.com/jehyunlee/paper-curio/releases/latest/download/paper-curio-zotero9.xpi)** | v0.10.0 and earlier shipped a single `paper-curio.xpi` (Zotero 9 only) |
+
+1. Download the XPI for your version from the table above. Older versions are listed under [Releases](https://github.com/jehyunlee/paper-curio/releases) with the same file names.
+2. In Zotero, choose **Tools → Plugins → gear menu (upper right) → Install Plugin From File…**, then select the downloaded XPI.
+3. Subsequent updates are **automatic**: `update.json` carries one entry per Zotero major, so Zotero 9 only receives the 9 build and Zotero 10 only receives the 10 build.
+
+> After upgrading Zotero from 9 to 10, the Zotero 9 plugin is disabled as "incompatible". Install `paper-curio-zotero10.xpi` once by hand; automatic updates then follow the Zotero 10 line. Preferences and API-key references are preserved.
 
 > Installation and one API key are enough to start using **AI Chat / Comparative Chat immediately** (Light mode). Enhanced features such as review generation, figure extraction, related-paper analysis, and full collection processing require paper-curation and the py312 bridge described under **Optional dependency** below.
 
@@ -47,10 +73,20 @@ Light mode caches PDF text locally for instant reopening. Enhanced mode first re
 
 ```bash
 npm install
-npm run build          # → build/paper-curio.xpi  (tsc + pack)
+npm run build          # → build/paper-curio-zotero9.xpi + build/paper-curio-zotero10.xpi + build/update.json
+npm run build-only 10  # one target only (no merged update.json)
 ```
 
-Install the resulting `build/paper-curio.xpi` using the same procedure above. `npm run release` handles release publishing in one step: building the .xpi, uploading the GitHub release, and updating the automatic-update manifest.
+One source tree produces one XPI per Zotero major. `strict_min/max_version` in `addon/manifest.json` are filled at build time from the target table in `scripts/targets.mjs`; supporting a new Zotero major means adding a row there. Install a built XPI using the same procedure above.
+
+Release procedure — both XPIs **always ship together**:
+
+```bash
+# bump package.json version and commit, then
+npm run build && npm test && npm run release
+```
+
+`npm run release` attaches both XPIs to the `v<version>` release and refreshes `update.json` on the `release` tag with the merged per-version entries. It refuses to overwrite an existing tag.
 
 ## Optional dependency: [paper-curation](https://github.com/jehyunlee/paper-curation) (Enhanced mode)
 

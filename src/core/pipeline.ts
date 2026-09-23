@@ -20,6 +20,7 @@ import { getItemTopics } from "./categorize"
 import { joinPath, readText, pathExists } from "../utils/fs"
 import { getString } from "../utils/locale"
 import { pipeline as log } from "../utils/loggers"
+import { ReviewTaskError, reviewStatusError } from "../utils/reviewError"
 
 declare const Services: any
 
@@ -91,7 +92,7 @@ async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
   }
 
   const pdfPath = await pdfFilePath(item)
-  if (!pdfPath) throw new Error(getString("review-needs-pdf"))
+  if (!pdfPath) throw new ReviewTaskError("needs-pdf")
   const request: LocalReviewRequest = {
     schema_version: 1,
     feature: "review",
@@ -129,9 +130,7 @@ async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
   const plan = await localReviewViaBridge(target.root, request, false)
   if (plan.status === "exists") return skipped("exists-native")
   if (plan.status !== "ready") {
-    throw new Error(
-      `${plan.status}: ${plan.error || getString("review-preflight-failed")}`,
-    )
+    throw reviewStatusError(plan.status)
   }
   const reservation = await corpusViaBridge(target.root, {
     op: "reserve",
@@ -152,9 +151,7 @@ async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
   try {
     const finalPlan = await localReviewViaBridge(target.root, request, false)
     if (!["ready", "exists"].includes(finalPlan.status)) {
-      throw new Error(
-        `${finalPlan.status}: ${finalPlan.error || getString("review-preflight-failed")}`,
-      )
+      throw reviewStatusError(finalPlan.status)
     }
     const confirmed = Services.prompt.confirm(
       Zotero.getMainWindow(),

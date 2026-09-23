@@ -8,6 +8,7 @@ import { extractTextCached } from "../extract/text"
 import { getString } from "../utils/locale"
 import { processItem } from "../core/pipeline"
 import { featureReportHtml } from "../render/featureReport"
+import { ReviewTaskError, reviewErrorMessage } from "../utils/reviewError"
 
 declare const Services: any
 
@@ -20,7 +21,8 @@ export async function openFeaturePanel(
   if (!Array.isArray(manifest.features))
     throw new Error("Invalid shared feature registry")
   const features = manifest.features as FeatureDefinition[]
-  const selected = getSelectedRegularItems()[0]
+  const reviewItems = getSelectedRegularItems()
+  const selected = reviewItems[0]
   const meta = selected ? getPaperMeta(selected) : undefined
   const existing = meta
     ? await findExisting(target.papersDir, {
@@ -93,26 +95,33 @@ export async function openFeaturePanel(
         card.append(description)
         if (feature.id === "review") {
           const note = create("p")
-          note.textContent = getString("feature-use-review")
+          note.textContent =
+            getString("feature-use-review") +
+            "\n" +
+            reviewItems.map((item) => item.getDisplayTitle()).join("\n")
           const button = create("button") as HTMLButtonElement
-          button.textContent = getString("feature-plan")
+          button.textContent = getString("feature-review-selected")
           const result = create("pre")
           result.style.whiteSpace = "pre-wrap"
+          if (!reviewItems.length) {
+            button.disabled = true
+            result.textContent = reviewErrorMessage(
+              new ReviewTaskError("no-selection"),
+            )
+          }
           button.addEventListener("click", async () => {
             button.disabled = true
             try {
-              const items = getSelectedRegularItems()
-              if (!items.length) throw new Error("No papers selected")
-              for (const item of items)
+              for (const item of reviewItems)
                 result.textContent = JSON.stringify(
                   await processItem(item),
                   null,
                   2,
                 )
-            } catch {
-              result.textContent = getString("feature-execution-failed")
+            } catch (error) {
+              result.textContent = reviewErrorMessage(error)
             } finally {
-              button.disabled = false
+              button.disabled = !reviewItems.length
             }
           })
           card.append(note, button, result)

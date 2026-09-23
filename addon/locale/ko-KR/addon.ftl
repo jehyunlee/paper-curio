@@ -1,9 +1,24 @@
 # 우클릭 메뉴
+review-error-no-selection = PDF 첨부만이 아닌 논문 항목을 Zotero에서 선택하고 모듈 창을 다시 여세요.
+feature-review-selected = 선택 논문 리뷰…
+review-error-needs-pdf = 선택한 논문에 접근 가능한 로컬 PDF를 첨부하세요.
+review-error-needs-key = 선택한 리뷰 제공자의 키를 공통 OS 키 저장소 또는 환경변수에 설정하세요.
+review-error-needs-runtime = paper-curation 경로, Python 3.12와 선택한 제공자의 의존성을 확인하세요.
+review-error-insufficient-data = PDF가 없거나 읽을 수 없거나 선택한 논문 메타데이터와 일치하지 않습니다.
+review-error-budget-exceeded = 리뷰 예상비용이 설정한 상한을 초과했습니다. 모델은 호출하지 않았습니다.
+review-error-budget-unavailable = 비용 상한 검사에 필요한 제공자 단가를 확인하세요.
+review-error-failed = 리뷰 요청에 실패했습니다. 다른 제공자로 자동 전송하지 않았습니다.
+review-error-corpus-busy = 다른 코퍼스 작업이나 예약이 진행 중입니다. 완료 후 다시 시도하세요.
+review-error-corpus-invalid-slug = 코퍼스의 폴더 이름 검증에 실패했습니다. 백엔드 버전과 폴더 이름 검증을 확인하세요.
+review-error-corpus-invalid-index = 논문 인덱스 형식이 잘못됐습니다. 인덱스를 복구한 뒤 리뷰하세요.
+review-error-corpus-identity-conflict = 기존 코퍼스와 Zotero 논문 식별정보가 충돌합니다. 덮어쓰기 전에 메타데이터를 확인하세요.
+review-error-corpus-filesystem-error = 코퍼스를 읽거나 쓰지 못했습니다. 경로와 접근 권한을 확인하세요.
+review-error-corpus-invalid-request = 코퍼스 예약 또는 등록 요청이 거부됐습니다. 공통 백엔드 버전과 요청 계약을 확인하세요.
 credential-save = OS 키 저장소에 저장 (빈 값은 삭제)
 credential-saved = OS 키 저장소 갱신 완료. 설정에는 참조만 저장합니다.
 credential-runtime-needed = 먼저 paper-curation과 Python keyring 환경을 연결하세요.
 credential-save-failed = OS 키 저장 실패. 평문 설정에는 저장하지 않았습니다.
-feature-menu = Paper Curation 기능 모듈
+feature-menu = (adv.) run Paper Curation modules
 feature-route-reading = 읽기 / 내보내기
 feature-route-ai = 논문 AI
 feature-route-collection = 컬렉션 관리

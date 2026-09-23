@@ -14,7 +14,7 @@
 
 로컬 리뷰는 `fcntl` 잠금이 있는 macOS/Linux용입니다. Windows 로컬 리뷰는 아직 런타임 미지원이며, 기존 문서 열람·대화와는 별개입니다.
 
-Zotero 9 플러그인 — **논문 PDF와 바로 대화(AI Chat)하고, 여러 논문을 비교 분석(Comparative Chat)하며, Zotero 컬렉션을 paper-curation 토픽으로 전체 처리합니다.** LLM API 키(Anthropic / OpenAI / Gemini 중 하나)만 있으면 AI Chat은 설치 직후 바로 동작합니다.
+Zotero 9 / 10 플러그인 — **논문 PDF와 바로 대화(AI Chat)하고, 여러 논문을 비교 분석(Comparative Chat)하며, Zotero 컬렉션을 paper-curation 토픽으로 전체 처리합니다.** LLM API 키(Anthropic / OpenAI / Gemini 중 하나)만 있으면 AI Chat은 설치 직후 바로 동작합니다.
 
 여기에 [**paper-curation**](https://github.com/jehyunlee/paper-curation)을 연동하면 **공통 리뷰·근거 기반 비교·요약, OS 키 저장, 연관논문 분석, 답변 속 그림 표시, 선택 모듈과 컬렉션 전체 처리**를 사용할 수 있습니다. 기존 전체 처리와 그림 생성은 별도 작업이며 자동으로 리뷰 뒤에 실행하지 않습니다. 진입점은 우클릭 메뉴입니다.
 
@@ -33,13 +33,38 @@ Zotero 9 플러그인 — **논문 PDF와 바로 대화(AI Chat)하고, 여러 �
 
 Light 모드는 PDF 텍스트를 로컬에 캐시해 재오픈이 즉시입니다. Enhanced 모드는 paper-curation이 이미 분해해 둔 `text.md`·`figures/`를 먼저 읽어 첫 응답 준비가 더 빠릅니다.
 
+## 5분 시작 — 어디에서 무엇을 설정하나
+
+![세 가지 사용 경로](https://raw.githubusercontent.com/jehyunlee/paper-curation/master/usage_workflow.png)
+
+| 순서 | 어디에서                                        | 무엇을                                                                                                                                                            |
+| ---- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | 터미널                                          | [paper-curation](https://github.com/jehyunlee/paper-curation) 클론 → `conda` `py312` → `pip install -r requirements.txt` → `python pipeline/setup.py` (키 불필요) |
+| 2    | Zotero → Tools → Plugins                        | 아래 **설치** 절차로 `paper-curio.xpi` 설치                                                                                                                       |
+| 3    | Zotero → Settings → Paper Curio → **출력 위치** | **paper-curation 루트 경로**에 1의 폴더 지정 (Python 경로는 비우면 `py312`)                                                                                       |
+| 4    | Zotero → Settings → Paper Curio → **API 키**    | **리뷰 제공자** 하나 선택 → 키 입력 → **OS 키 저장소에 저장**. 필요하면 **리뷰 비용 상한**과 단가 입력                                                            |
+| 5    | 라이브러리에서 논문 항목 우클릭                 | **paper-curation Review 생성** → 계획(제공자·저장 경로·비용) 확인 → 실행                                                                                          |
+| 6    | 우클릭 **Paper Curation 기능 모듈**             | 요약·질의·비교(논문 AI), 검색 색인·지표·서지(컬렉션 관리), 오디오·타임라인·배포·메일(선택 기능)을 카드별로 **실행 계획 확인 → 선택 작업 실행**                    |
+
+각 단계의 화면 항목, 결과 위치, 상태 메시지(`needs-key`·`busy`·**서지 DB 반영 대기** 등)의 뜻은
+📘 **[활용 매뉴얼](https://github.com/jehyunlee/paper-curation/blob/master/docs/user-guide.md)** 에 있습니다.
+
 ## 설치
 
 ### 사용자 — 릴리스에서 설치 (권장)
 
-1. **[최신 릴리스](https://github.com/jehyunlee/paper-curio/releases/latest)** 에서 **`paper-curio.xpi`** 를 내려받습니다.
-2. Zotero 9 → **Tools → Plugins → ⚙️ (우상단) → Install Plugin From File…** → 받은 `paper-curio.xpi` 선택.
-3. 이후 업데이트는 **자동**입니다 — Zotero가 릴리스의 `update.json` 매니페스트를 통해 새 버전을 받아옵니다.
+릴리스마다 **Zotero 메이저 버전별 XPI**를 따로 제공합니다. 사용 중인 Zotero 버전(**Help → About Zotero**)에 맞는 파일을 받으세요. 두 파일은 같은 소스·같은 기능이며 Zotero 호환 범위만 다릅니다.
+
+| 사용 중인 Zotero | 내려받을 파일 | 비고 |
+|---|---|---|
+| **10.x** | **[`paper-curio-zotero10.xpi`](https://github.com/jehyunlee/paper-curio/releases/latest/download/paper-curio-zotero10.xpi)** | v0.11.0부터 제공 |
+| **9.x** (7·8 포함) | **[`paper-curio-zotero9.xpi`](https://github.com/jehyunlee/paper-curio/releases/latest/download/paper-curio-zotero9.xpi)** | v0.10.0 이하는 `paper-curio.xpi` 단일 파일(Zotero 9 전용) |
+
+1. 위 표에서 자기 버전의 XPI를 내려받습니다. 지난 버전은 [릴리스 목록](https://github.com/jehyunlee/paper-curio/releases)에서 같은 이름으로 찾을 수 있습니다.
+2. Zotero → **Tools → Plugins → ⚙️ (우상단) → Install Plugin From File…** → 받은 XPI 선택.
+3. 이후 업데이트는 **자동**입니다 — `update.json`에 버전별 항목이 있어 Zotero 9는 9용, Zotero 10은 10용 XPI만 받습니다.
+
+> Zotero를 9에서 10으로 올리면 9용 플러그인은 "호환되지 않음"으로 비활성화됩니다. 그때는 `paper-curio-zotero10.xpi`를 한 번 수동 설치하면 이후 자동 업데이트가 10용 라인을 따라갑니다. 설정·API 키 참조는 그대로 유지됩니다.
 
 > 설치 + API 키 하나만으로 **AI Chat / Comparative Chat이 바로 동작합니다** (Light 모드). Review 생성·figure 추출·연관논문 분석·컬렉션 전체 처리 등 Enhanced 기능에는 아래 **선택 의존성** 섹션(paper-curation + py312 브리지)이 필요합니다.
 
@@ -47,10 +72,20 @@ Light 모드는 PDF 텍스트를 로컬에 캐시해 재오픈이 즉시입니�
 
 ```bash
 npm install
-npm run build          # → build/paper-curio.xpi  (tsc + pack)
+npm run build          # → build/paper-curio-zotero9.xpi + build/paper-curio-zotero10.xpi + build/update.json
+npm run build-only 10  # 한 타깃만 (병합 update.json은 생성하지 않음)
 ```
 
-빌드한 `build/paper-curio.xpi`를 위와 같은 방식으로 직접 설치할 수 있습니다. 릴리스 발행(.xpi 빌드 + GitHub 릴리스 업로드 + 자동업데이트 manifest 갱신)은 `npm run release`로 한 번에 처리됩니다.
+한 소스에서 Zotero 메이저별 XPI를 만듭니다. `addon/manifest.json`의 `strict_min/max_version`은 빌드 시 `scripts/targets.mjs`의 타깃 표로 채워지므로, 새 Zotero 메이저를 지원하려면 그 표에 항목을 추가하면 됩니다. 빌드한 XPI는 위와 같은 방식으로 직접 설치할 수 있습니다.
+
+릴리스 절차 — 두 XPI가 **항상 함께** 나갑니다:
+
+```bash
+# package.json version 올리고 커밋한 뒤
+npm run build && npm test && npm run release
+```
+
+`npm run release`는 `v<version>` 릴리스에 두 XPI를 첨부하고, `release` 태그의 `update.json`을 버전별 항목이 담긴 병합본으로 갱신합니다. 이미 있는 태그는 덮어쓰지 않습니다.
 
 ## 선택 의존성: [paper-curation](https://github.com/jehyunlee/paper-curation) (Enhanced 모드)
 

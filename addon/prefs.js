@@ -48,9 +48,6 @@ pref("extensions.zotero.__addonRef__.OUTPUT_FALLBACK_DIR", "")
 // 기존 review 덮어쓰기 정책 (기본 OFF = 이미 review 있으면 건너뜀)
 pref("extensions.zotero.__addonRef__.OVERWRITE_EXISTING", false)
 
-// 논문 비교 시 PaperBanana 다이어그램 생성 (OFF면 비교가 수십 초로 단축)
-pref("extensions.zotero.__addonRef__.COMPARE_IMAGE", true)
-
 // collection명 → topic 매핑 (JSON). 비우면 collection명을 slugify해 topic으로 사용.
 // 예: {"AI for Science":"ai4s","Physical AI":"physical-ai"}
 pref("extensions.zotero.__addonRef__.COLLECTION_TOPIC_MAP", "")

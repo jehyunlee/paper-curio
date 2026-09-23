@@ -21,6 +21,10 @@ await build({
         builder.onResolve({ filter: /.*/ }, ({ path, importer }) => {
           if (!importer) return
           if (path === "../render/featureReport") return
+          if (path === "../utils/reviewError")
+            return { path: resolve("src/utils/reviewError.ts") }
+          if (path === "./locale")
+            return { path: "../utils/locale", namespace: "fixture" }
           return { path, namespace: "fixture" }
         })
         builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => {
@@ -42,7 +46,7 @@ await build({
             "../core/pc-discovery":
               "export const resolveOutputTarget=async()=>({root:'/fixture',papersDir:'/fixture/docs/papers'})",
             "../apis/zotero/item":
-              "export const getSelectedRegularItems=()=>[{key:'ABCD1234',getDisplayTitle:()=> 'Evidence source'}]; export const getPaperMeta=()=>({key:'ABCD1234',title:'Evidence source',doi:''})",
+              "export const getSelectedRegularItems=()=>window.fixtureSelectedItems || [{key:'ABCD1234',getDisplayTitle:()=> 'Evidence source'}]; export const getPaperMeta=()=>({key:'ABCD1234',title:'Evidence source',doi:''})",
             "../core/papers-index":
               "export const findExisting=async()=>({slug:'001_Evidence',primary_topic:'demo'})",
             "../extract/pdfjs":
@@ -53,7 +57,7 @@ await build({
             "../utils/fs":
               "export const writeText=async(path,text)=>{window.fixtureExport={path,text}}",
             "../core/pipeline":
-              "export const processItem=async()=>({status:'completed'})",
+              "import {ReviewTaskError} from '../utils/reviewError'; export const processItem=async(item)=>{(window.reviewAttemptKeys ||= []).push(item.key);if(window.fixtureReviewErrorCode)throw new ReviewTaskError(window.fixtureReviewErrorCode);return {status:'completed'}}",
           }
           if (!(path in modules)) throw new Error("Unmocked module " + path)
           return { loader: "js", contents: modules[path] }

@@ -1,6 +1,6 @@
 {
   "name": "paper-curio",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Chat with papers and generate Sonnet reviews through the shared paper-curation engine",
   "config": {
     "addonName": "Paper Curio",
@@ -14,7 +14,7 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "zotero-plugin serve",
-    "test": "node test/normalizeReviewPayload.test.mjs && node test/localReview.test.mjs && node test/credentials.test.mjs && node test/featureReport.test.mjs && node test/preferences.test.mjs && node test/reviewError.test.mjs && node test/buildTargets.test.mjs",
+    "test": "node test/normalizeReviewPayload.test.mjs && node test/localReview.test.mjs && node test/credentials.test.mjs && node test/featureReport.test.mjs && node test/preferences.test.mjs && node test/reviewError.test.mjs && node test/geminiStream.test.mjs && node test/buildTargets.test.mjs",
     "build": "tsc --noEmit && node scripts/build-targets.mjs",
     "build-only": "node scripts/build-targets.mjs",
     "stop": "node scripts/stop.mjs",

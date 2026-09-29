@@ -5,6 +5,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import OpenAI from "openai"
 import { GoogleGenerativeAI } from "@google/generative-ai"
+import { streamGeminiContent } from "./geminiStream"
 import { getAnthropicKey, getOpenAIKey, getGeminiKey } from "../utils/env"
 import { getPref, getPrefStr } from "../utils/prefs"
 import { llm as log } from "../utils/loggers"
@@ -302,24 +303,21 @@ export async function chatComplete(
     const req = { contents: [...baseContents, ...extra] }
     let finish = ""
     if (onDelta) {
-      const result = await gm.generateContentStream(req)
-      for await (const chunk of result.stream) {
-        let d = ""
-        try {
-          d = chunk.text() || ""
-        } catch {
-          d = ""
-        }
-        if (d) {
+      // SDK의 generateContentStream은 Zotero 샌드박스에 없는 TextDecoderStream을 쓴다.
+      const final = await streamGeminiContent({
+        apiKey: key,
+        model,
+        systemInstruction: system,
+        contents: req.contents,
+        onText: (d) => {
           fullText += d
           onDelta(d)
-        }
-      }
-      const final = await result.response
-      const um: any = (final as any)?.usageMetadata || {}
+        },
+      })
+      const um = final.usageMetadata
       acc.input += num(um.promptTokenCount)
       acc.output += num(um.candidatesTokenCount) + num(um.thoughtsTokenCount)
-      finish = (final as any)?.candidates?.[0]?.finishReason || ""
+      finish = final.finishReason
     } else {
       const r = await gm.generateContent(req)
       const um = (r.response as any)?.usageMetadata || {}

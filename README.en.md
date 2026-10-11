@@ -108,12 +108,12 @@ paper-curation normally runs in a **py312 environment**. Set that interpreter un
 | `figures/figN.png`           | Original Python function     | `run_update_force.extract_figures` (PyMuPDF)                                                                                                                                   |
 | `review.md`                  | Shared local review executor | `run_update_force.write_review` (`claude-sonnet-5`)                                                                                                                            |
 | `originality.md`             | Original Python function     | `originality_extractor._extract_rule_based`                                                                                                                                    |
-| Related papers (connections) | Original Python functions    | `specter2_embed` + `compute_related_candidates` + `generate_connections_from_candidates` + `sync_topic_connections` (requires a corpus embedding cache)                        |
+| Related papers (connections) | paper-curation connection pass | Content-judged by `lib.relation_judge.judge_if_enabled`; Curio minimal reviews do not create connections                                                      |
 | `index.html`                 | Shared Python executor       | `review_to_html.convert_review(keyless=True)` — no Audio or corpus-connection injection in minimal reviews                                                                     |
 | `_papers_index.json`         | TypeScript append            | Topic comes from the Zotero collection; category assignment is delegated to paper-curation's `classify_papers.py`                                                              |
 | Topic index / timelines      | Original Python pipeline     | Collection context menu invokes `run_full.py --mode curate --source zotero --images changed` → `index.html`, `_category_*`, `research_timeline.png`, `category_timeline_*.png` |
 
-> Originality, connections and topic outputs above belong to full collection processing. Minimal reviews produce only text, figures, review, HTML and a bibliography sidecar. A missing shared runtime or selected provider credential stops execution with a specific requirement. Chat retains its existing pdf.js extraction path.
+> Originality and topic outputs above belong to full collection processing. Related papers come from paper-curation's content-judged connection pass; Curio minimal reviews produce only text, figures, review, HTML and a bibliography sidecar and do not create connections. A missing shared runtime or selected provider credential stops execution with a specific requirement. Chat retains its existing pdf.js extraction path.
 
 ## API keys
 
@@ -148,13 +148,12 @@ Papers that already have reviews are **skipped by default** (non-destructive). E
 - **Open paper-curation Review HTML** in the context menu opens an existing review (`index.html`) directly in the browser without generating a new one.
 - **paper-curation AI Chat (PDF Q&A)** in the context menu provides multi-turn Q&A using the paper PDF as context, with GPT, Anthropic, and Gemini model selection at the top.
 - **paper-curation Citedby** in the context menu collects citing papers from OpenAlex, Scopus, S2, and arXiv using the selected paper's DOI, extracts originality, and—when a topic is entered—applies an LLM filter and produces 5W1H summaries. It opens a **self-contained HTML report** in the browser. The report's **Print PDF** button creates a PDF with working links. Papers already in your library open directly through `zotero://open-pdf` (or their bibliographic record when no PDF is available). Citing papers can then be **bulk-imported into Zotero**, automatically skipping DOI, arXiv, and title duplicates, ready for `run_full --mode curate --source zotero`.
-- Minimal reviews generate **text, figures, review, HTML and bibliography.json** through the shared Python executor. Originality and connections belong to separate collection processing.
+- Minimal reviews generate **text, figures, review, HTML and bibliography.json** through the shared Python executor and do not create connections. Related papers come from paper-curation's content-judged connection pass.
 - **Process entire collection** in the collection context menu prompts for an alias for a new collection and registers it in `config.json`, then runs Zotero sync → reviews → topic classification → narrative/main and category timelines → topic index. Cloudflare deployment is excluded.
 - Full collection processing prepares py312 automatically: it prefers the specified Python interpreter, otherwise bootstrapping a managed venv or relocatable Python.
-- Full collection processing uses the existing SPECTER2 connections pipeline; minimal reviews do not generate connections automatically.
+- Related papers come from paper-curation's content-judged connection pass; Curio minimal reviews do not create connections.
 - `index.html`, topic bookkeeping, non-destructive overwrite handling, and Korean/English locales. Minimal review HTML does not embed operator keys.
 - GitHub releases and an automatic-update manifest.
-- **Pending:** bidirectional incoming connections (backlinks). Only outgoing connections are currently handled; incoming connections are delegated to a full paper-curation connections run.
 
 ## License
 

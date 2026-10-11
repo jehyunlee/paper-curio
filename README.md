@@ -107,12 +107,12 @@ paper-curation은 표준으로 **py312 환경**에서 돕니다. 같은 인터�
 | `figures/figN.png`      | 🐍 원본 함수 호출       | `run_update_force.extract_figures` (PyMuPDF)                                                                                                                 |
 | `review.md`             | 공통 로컬 리뷰 실행기   | `run_update_force.write_review` (`claude-sonnet-5`)                                                                                                          |
 | `originality.md`        | 🐍 원본 함수 호출       | `originality_extractor._extract_rule_based`                                                                                                                  |
-| 연관 논문(connections)  | 🐍 원본 함수 호출       | `specter2_embed` + `compute_related_candidates` + `generate_connections_from_candidates` + `sync_topic_connections` (코퍼스 임베딩 캐시 필요)                |
+| 연관 논문(connections)  | paper-curation 연결 처리 | content-judged `lib.relation_judge.judge_if_enabled`; Curio 최소 리뷰는 연결을 만들지 않음                                                                  |
 | `index.html`            | 공통 Python 실행기      | `review_to_html.convert_review(keyless=True)` — 최소 리뷰에서 Audio·코퍼스 연결 주입 제외                                                                    |
 | `_papers_index.json`    | TS append               | topic은 Zotero collection에서, category는 paper-curation `classify_papers.py`에 위임                                                                         |
 | topic index / timelines | 🐍 원본 파이프라인 호출 | 컬렉션 우클릭 `run_full.py --mode curate --source zotero --images changed` → `index.html`, `_category_*`, `research_timeline.png`, `category_timeline_*.png` |
 
-> 위 originality·connections·토픽 출력은 컬렉션 전체 처리 기능입니다. 최소 리뷰는 text·figure·review·HTML·서지 사이드카만 만듭니다. 공통 런타임이나 선택한 제공자 키가 없으면 해당 요구사항을 표시하고 중단합니다. 대화의 PDF 추출은 기존 pdf.js 경로를 유지합니다.
+> originality·토픽 출력은 컬렉션 전체 처리 기능입니다. 관련 논문은 content-judged paper-curation 연결 처리에서 생성하며, Curio 최소 리뷰는 text·figure·review·HTML·서지 사이드카만 만들고 연결을 만들지 않습니다. 공통 런타임이나 선택한 제공자 키가 없으면 해당 요구사항을 표시하고 중단합니다. 대화의 PDF 추출은 기존 pdf.js 경로를 유지합니다.
 
 ## API 키
 
@@ -145,13 +145,12 @@ paper-curation은 표준으로 **py312 환경**에서 돕니다. 같은 인터�
 - ✅ 우클릭 `paper-curation Review HTML 열기` — 이미 생성된 리뷰(index.html)를 브라우저로 바로 오픈 (생성 안 함)
 - ✅ 우클릭 `paper-curation AI 대화 (PDF Q&A)` — 논문 PDF를 컨텍스트로 멀티턴 질의응답, 상단에서 GPT·Anthropic·Gemini 모델 선택
 - ✅ 우클릭 `paper-curation Citedby` — 선택 논문의 DOI로 인용논문을 OpenAlex·Scopus·S2·arXiv에서 수집 → 독창성 추출 → (주제 입력 시) LLM 필터 + 5W1H 요약 → **자기완결 HTML 리포트**를 브라우저로 오픈. 리포트의 **[PDF 출력]** 버튼은 링크가 살아있는 PDF를 만들고, 내 라이브러리에 있는 논문은 `zotero://open-pdf`(없으면 서지정보)로 바로 열린다. 이어서 인용논문을 **Zotero에 일괄 등록**할 수 있다 (DOI·arXiv·제목 중복 자동 skip) → 그대로 `run_full --mode curate --source zotero` 로 이어짐
-- 최소 리뷰: **text·figure·review·HTML·bibliography.json**을 공통 Python 실행기로 생성. originality·connections는 별도 컬렉션 처리.
+- 최소 리뷰: **text·figure·review·HTML·bibliography.json**을 공통 Python 실행기로 생성하며 connections를 만들지 않음. 관련 논문은 content-judged paper-curation 연결 처리에서 생성.
 - ✅ Collection 우클릭 `이 컬렉션 전체 처리` — 신규 컬렉션은 alias를 물어 `config.json`에 등록한 뒤 Zotero sync → review → 주제분류 → narrative/main·category timeline → topic index까지 실행 (Cloudflare 배포 제외)
 - 컬렉션 전체 처리의 py312 자동 준비 — 지정 Python 우선, 없으면 관리형 venv/relocatable Python으로 bootstrap
-- 컬렉션 전체 처리의 connections는 기존 SPECTER2 파이프라인 사용. 최소 리뷰에서 자동 생성하지 않음.
+- 관련 논문은 paper-curation의 content-judged 연결 처리에서 생성. Curio 최소 리뷰는 연결을 만들지 않음.
 - index.html, topic 기록, 비파괴 덮어쓰기, ko/en 로케일. 최소 리뷰 HTML에는 운영자 키를 삽입하지 않음.
 - ✅ GitHub 릴리스 + 자동 업데이트 manifest
-- ⏳ connections incoming(역참조) 양방향 — 현재 outgoing만, incoming은 paper-curation 전체 connections run에 위임
 
 ## 라이선스
 

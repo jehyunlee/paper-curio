@@ -31,9 +31,6 @@ pref(
   "credential:springer",
 )
 pref("extensions.zotero.__addonRef__.REVIEW_PROVIDER", "anthropic")
-pref("extensions.zotero.__addonRef__.REVIEW_MAX_COST_USD", "")
-pref("extensions.zotero.__addonRef__.REVIEW_INPUT_RATE", "")
-pref("extensions.zotero.__addonRef__.REVIEW_OUTPUT_RATE", "")
 
 // Default models per provider (paper-curation과 동일 기준)
 // Anthropic: paper-curation WRITE_REVIEW_MODEL. Gemini: 주력 모델. OpenAI: 참조 모델.

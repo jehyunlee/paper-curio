@@ -12,7 +12,7 @@ const modules = {
     "export const resolveOutputTarget = async () => ({ root: '/pc', papersDir: '/pc/docs/papers', source: 'pref' })",
   "./papers-index": `export const nextNumber = async () => 1;
     export const findExisting = async () => globalThis.state.existing;
-    export const isPaperCurioEntry = () => false;`,
+    export const isPaperCurioEntry = () => !!globalThis.state.existing?.curio;`,
   "../utils/prefs":
     "export const getPref = () => false; export const getPrefStr = (key) => globalThis.state.prefs?.[key] || ''",
   "../utils/slugify": "export const buildSlug = () => '001_Paper'",
@@ -21,7 +21,16 @@ const modules = {
     "export const parseReviewMd = () => ({ scores: {overall: 4}, essence: 'e' })",
   "../extract/pybridge": `export const localReviewViaBridge = async (_, request, execute) => {
       globalThis.state.calls.push({request:structuredClone(request), execute});
-      return execute ? globalThis.state.result : globalThis.state.plan;
+      if (execute && globalThis.state.waitForReview) await globalThis.state.waitForReview;
+      return execute ? globalThis.state.result :
+        (request.reservation_token && globalThis.state.finalPlan) || globalThis.state.plan;
+    };
+    export const featureViaBridge = async (_, request, execute) => {
+      if (!globalThis.state.entry) throw new Error('connections before registration');
+      globalThis.state.featureCalls.push({request, execute});
+      if (globalThis.state.connectionException) throw new Error('runtime unavailable');
+      if (globalThis.state.waitForConnections) await globalThis.state.waitForConnections;
+      return globalThis.state.connectionResult;
     };
     export const corpusViaBridge = async (_, request) => {
       globalThis.state.transactions.push(request.op);
@@ -80,9 +89,8 @@ try {
   globalThis.Zotero = { getMainWindow: () => ({}) }
   globalThis.Services = {
     prompt: {
-      confirm: (_window, _title, message) => {
-        state.confirmMessage = message
-        return state.confirm
+      confirm: () => {
+        throw new Error("Review Generation must not open a modal confirmation")
       },
     },
   }
@@ -119,9 +127,10 @@ try {
         url: "https://example.test",
       },
       pdf: "/pdf/paper.pdf",
-      confirm: true,
       calls: [],
       transactions: [],
+      featureCalls: [],
+      connectionResult: { status: "completed", related_count: 3 },
       plan: { status: "ready" },
       result: {
         status: "completed",
@@ -152,14 +161,160 @@ try {
     "/pc/docs/papers/002_Reserved",
   )
   assert.equal(state.entry.classifications, undefined)
-  assert.match(state.confirmMessage, /\/pc\/docs\/papers\/002_Reserved/)
+  assert.equal(done.connections, 3)
+  assert.equal(done.connectionProcessing, "completed")
+  assert.deepEqual(state.featureCalls, [
+    {
+      execute: true,
+      request: {
+        schema_version: 1,
+        feature: "related-papers",
+        provider: "anthropic",
+        credential_ref: "credential:anthropic",
+        params: { slug: "002_Reserved" },
+      },
+    },
+  ])
+  reset()
+  state.prefs = {
+    REVIEW_MAX_COST_USD: "0.000001",
+    REVIEW_INPUT_RATE: "999",
+    REVIEW_OUTPUT_RATE: "999",
+  }
+  await processItem(item)
+  assert.ok(
+    state.calls.every(({ request }) => !("budget" in request)),
+    "Retired cost preferences cannot limit reviews",
+  )
+
+  reset()
+  const earlyAbort = new AbortController()
+  earlyAbort.abort()
+  await assert.rejects(processItem(item, { signal: earlyAbort.signal }), {
+    name: "AbortError",
+  })
+  assert.equal(state.calls.length, 0)
+
+  reset()
+  const restartController = new AbortController()
+  let finishOldReview
+  state.waitForReview = new Promise((resolve) => {
+    finishOldReview = resolve
+  })
+  const oldReview = processItem(item, { signal: restartController.signal })
+  await new Promise(setImmediate)
+  restartController.abort()
+  await assert.rejects(
+    processItem(item),
+    /review-already-running/,
+    "Keep lock until active Python stage completes",
+  )
+  finishOldReview()
+  await assert.rejects(oldReview, { name: "AbortError" })
+  assert.deepEqual(
+    state.transactions,
+    ["reserve", "cancel"],
+    "Release owned reservation before restart",
+  )
+  assert.equal(
+    state.featureCalls.length,
+    0,
+    "Retired run must not start downstream work",
+  )
+  reset()
+  state.existing = { slug: "001_Existing", score: 4, has_pdf: true }
+  const restarted = await processItem(item, { regenerate: true })
+  assert.equal(restarted.status, "completed")
+  assert.ok(
+    state.calls.every(({ request }) => request.overwrite && request.regenerate),
+    "Explicit restart bypasses saved review cache",
+  )
 
   reset()
   state.result.status = "exists"
   const recovered = await processItem(item)
-  assert.equal(recovered.skipped, true)
+  assert.equal(recovered.status, "completed")
+  assert.equal(recovered.connectionProcessing, "completed")
   assert.deepEqual(state.transactions, ["reserve", "register"])
   assert.equal(state.entry.review_date, "2026-09-01")
+
+  reset()
+  state.existing = { slug: "001_Existing", curio: true }
+  state.plan = { status: "exists" }
+  state.result.status = "exists"
+  assert.equal((await processItem(item)).connections, 3)
+  assert.ok(state.calls.every(({ request }) => request.overwrite === false))
+
+  for (const response of [
+    { status: "needs-key" },
+    { status: "failed" },
+    { status: "completed" },
+    { status: "completed", related_count: -1 },
+  ]) {
+    reset()
+    state.connectionResult = response
+    const pendingLinks = await processItem(item)
+    assert.equal(pendingLinks.status, "partial")
+    assert.equal(pendingLinks.recovery, "retry-connections")
+    assert.equal(pendingLinks.connectionProcessing, "failed")
+    assert.equal(
+      pendingLinks.connectionError,
+      response.status === "needs-key" ? "needs-key" : "failed",
+    )
+    assert.equal(pendingLinks.indexHtmlPath, "/out/index.html")
+    assert.deepEqual(
+      state.transactions,
+      ["reserve", "register"],
+      "Keep committed review after enrichment failure",
+    )
+  }
+  reset()
+  state.connectionException = true
+  assert.equal((await processItem(item)).recovery, "retry-connections")
+  reset()
+  state.connectionResult = { status: "completed", related_count: 0 }
+  assert.equal(
+    (await processItem(item)).status,
+    "completed",
+    "A successful all-unrelated judgment is valid",
+  )
+
+  reset()
+  let releaseConnections
+  state.waitForConnections = new Promise((resolve) => {
+    releaseConnections = resolve
+  })
+  let finished = false
+  const pendingProcessing = processItem(item).then((result) => {
+    finished = true
+    return result
+  })
+  await new Promise(setImmediate)
+  assert.equal(state.featureCalls.length, 1)
+  assert.equal(
+    finished,
+    false,
+    "Review UI must await the connection stage before declaring completion",
+  )
+  await assert.rejects(processItem(item), /review-already-running/)
+  releaseConnections()
+  assert.equal((await pendingProcessing).status, "completed")
+
+  reset()
+  const relationAbort = new AbortController()
+  state.waitForConnections = new Promise((resolve) => {
+    releaseConnections = resolve
+  })
+  const oldConnections = processItem(item, { signal: relationAbort.signal })
+  await new Promise(setImmediate)
+  relationAbort.abort()
+  releaseConnections()
+  await assert.rejects(oldConnections, { name: "AbortError" })
+  assert.deepEqual(
+    state.transactions,
+    ["reserve", "register"],
+    "Restart must preserve already committed reviews",
+  )
 
   reset()
   const running = processItem(item)
@@ -178,6 +333,11 @@ try {
   assert.equal(pending.recovery, "retry-registration")
   assert.equal(pending.indexHtmlPath, "/out/index.html")
   assert.deepEqual(state.transactions, ["reserve", "register", "cancel"])
+  assert.equal(
+    state.featureCalls.length,
+    0,
+    "Never enrich an unregistered review",
+  )
 
   reset()
   state.markerFailure = true
@@ -185,6 +345,11 @@ try {
   assert.equal(markerPartial.status, "partial")
   assert.equal(markerPartial.recovery, "retry-zotero-marker")
   assert.deepEqual(state.transactions, ["reserve", "register"])
+  assert.equal(
+    markerPartial.connectionProcessing,
+    "completed",
+    "Marker failure must not prevent connection processing",
+  )
 
   for (const failure of ["readFailure", "topicFailure"]) {
     reset()
@@ -203,11 +368,16 @@ try {
   assert.equal(state.entry, undefined)
 
   reset()
-  state.confirm = false
-  assert.equal((await processItem(item)).skipReason, "cancelled")
+  state.finalPlan = { status: "budget-exceeded" }
+  await assert.rejects(processItem(item), /budget-exceeded/)
   assert.equal(state.calls.length, 2)
   assert.equal(state.entry, undefined)
   assert.deepEqual(state.transactions, ["reserve", "cancel"])
+  assert.equal(
+    state.featureCalls.length,
+    0,
+    "Failed final preflight must not run related-paper calls",
+  )
 
   reset()
   state.pdf = null

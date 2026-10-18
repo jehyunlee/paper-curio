@@ -4,13 +4,13 @@
 
 ## 최소 리뷰와 공통 모듈
 
-최신 paper-curation과 Python 3.12를 연결하고 **선택한 제공자의 키 하나**를 OS 키 저장소에 저장합니다. 기본은 Anthropic Sonnet 5이며 OpenAI·Google을 명시적으로 선택할 수 있습니다. 로컬 PDF가 첨부된 Zotero 항목에서 Review 생성을 선택하면 전송 대상·비용 계획을 확인한 뒤 **추출 → 리뷰 → HTML + bibliography.json**만 실행합니다. Zotero의 원래 creator JSON과 저널을 전달하며 Zotero Web API 키는 필요하지 않습니다.
+최신 paper-curation과 Python 3.12를 연결하고 **선택한 리뷰 제공자의 키**를 OS 키 저장소에 저장합니다. 기본은 Anthropic Sonnet 5이며 OpenAI·Google을 명시적으로 선택할 수 있습니다. Review Generation은 별도 시작 확인 없이 **추출 → 리뷰 → HTML + bibliography.json → 등록 → 관련 논문 검색·판정**을 실행합니다. 실행 중 다시 누르면 **다시 만들기 / 생성 기다리기**를 선택합니다. 다시 만들기는 현재 단계가 안전하게 끝나고 예약 정리가 완료된 뒤 같은 논문을 캐시 없이 새로 생성합니다. 이미 발생한 API 비용은 취소되지 않습니다. 리뷰와 Sonnet 5.5 관계 판정의 **금액 상한은 없습니다**. 내부 준비 상태·자격증명 검사는 유지합니다.
 
-리뷰 실패 시 OpenAI/Gemini로 자동 전송하지 않습니다. Google·Resend 키, 분류 모델, PaperBanana, 배포 계정도 요구하지 않습니다. 분류·연관논문 생성·검색 인덱스·타임라인·서지 DB 갱신은 리뷰 뒤에 자동 실행되지 않습니다. Curio는 검색용 논문 목록만 갱신하며, 완료 메시지의 **서지 DB 반영 대기**는 리뷰 실패와 다른 상태입니다. 컬렉션 전체 처리 메뉴는 별도의 기존 고급 작업입니다.
+리뷰 실패 시 다른 제공자로 자동 전송하지 않습니다. 관련 논문 처리는 새 논문만 기존 코퍼스와 비교하며, 전체 재분류·검색 인덱스·타임라인·배포·서지 DB 갱신은 하지 않습니다. 연결 처리 실패는 **리뷰 저장됨 / 연결 처리 미완료**로 표시하고 리뷰를 보존합니다. 덮어쓰기를 끄고 같은 Curio 리뷰를 다시 실행하면 기존 리뷰를 재사용해 연결을 재시도합니다. 진행창은 처리 종료까지 유지되는 비모달 창이라 다른 논문 열기·추가를 막지 않습니다. **서지 DB 반영 대기**는 별도 상태입니다.
 
 우클릭 **Paper Curation 기능 모듈**은 CLI와 동일한 레지스트리·계획·결과를 사용합니다. 읽기/내보내기·논문 AI·컬렉션 관리에서 시작하고 오디오·타임라인·배포·메일은 별도로 선택합니다. 요약·질의는 로컬 Ollama `qwen3.8:27b-mlx`도 지원하며 검증 가능한 원문 인용이 없는 답변은 거부합니다. Comparison 메뉴도 이 공통 비교 기능을 사용하며 자동 그림 생성은 하지 않습니다.
 
-설정에는 `credential:<provider>` 참조만 남기고 값은 OS keyring에 저장합니다. 환경변수는 자동화용 우선 주입 경로이며 평문 설정으로 복사하지 않습니다. 과거 평문 키 설정은 더 이상 읽지 않으므로 키를 OS 저장소에 다시 저장하세요. 저장 성공 후 해당 과거 평문 항목을 제거합니다. 비용 상한을 설정하면 입력/출력 단가도 필요하며 미확정 또는 상한 초과 시 차단합니다. 공동 코퍼스 예약·등록·취소와 공통 CLI/full 작업 잠금으로 지원 진입점의 동시 쓰기를 조정합니다. 직접 내부 스크립트를 호출하는 디버깅 작업은 공통 실행기를 우회하지 않도록 주의하세요.
+설정에는 `credential:<provider>` 참조만 남기고 값은 OS keyring에 저장합니다. 환경변수는 자동화용 우선 주입 경로이며 평문 설정으로 복사하지 않습니다. 과거 평문 키 설정은 더 이상 읽지 않으므로 키를 OS 저장소에 다시 저장하세요. 리뷰 비용 상한 설정과 단가 입력란은 제거했습니다. 공동 코퍼스 예약·등록·취소와 공통 CLI/full 작업 잠금으로 동시 쓰기를 조정합니다. 직접 내부 스크립트로 공통 실행기를 우회하지 마세요.
 
 로컬 리뷰는 `fcntl` 잠금이 있는 macOS/Linux용입니다. Windows 로컬 리뷰는 아직 런타임 미지원이며, 기존 문서 열람·대화와는 별개입니다.
 
@@ -42,8 +42,8 @@ Light 모드는 PDF 텍스트를 로컬에 캐시해 재오픈이 즉시입니�
 | 1    | 터미널                                          | [paper-curation](https://github.com/jehyunlee/paper-curation) 클론 → `conda` `py312` → `pip install -r requirements.txt` → `python pipeline/setup.py` (키 불필요) |
 | 2    | Zotero → Tools → Plugins                        | 아래 **설치** 절차로 `paper-curio.xpi` 설치                                                                                                                       |
 | 3    | Zotero → Settings → Paper Curio → **출력 위치** | **paper-curation 루트 경로**에 1의 폴더 지정 (Python 경로는 비우면 `py312`)                                                                                       |
-| 4    | Zotero → Settings → Paper Curio → **API 키**    | **리뷰 제공자** 하나 선택 → 키 입력 → **OS 키 저장소에 저장**. 필요하면 **리뷰 비용 상한**과 단가 입력                                                            |
-| 5    | 라이브러리에서 논문 항목 우클릭                 | **paper-curation Review 생성** → 계획(제공자·저장 경로·비용) 확인 → 실행                                                                                          |
+| 4    | Zotero → Settings → Paper Curio → **API 키**    | **리뷰 제공자** 선택 → 키 입력 → **OS 키 저장소에 저장**. 관계 판정에는 Anthropic 키도 필요합니다. |
+| 5    | 라이브러리에서 논문 항목 우클릭                 | **paper-curation Review 생성** → 즉시 실행. 실행 중 다시 누르면 다시 만들기 / 생성 기다리기 선택 |
 | 6    | 우클릭 **Paper Curation 기능 모듈**             | 요약·질의·비교(논문 AI), 검색 색인·지표·서지(컬렉션 관리), 오디오·타임라인·배포·메일(선택 기능)을 카드별로 **실행 계획 확인 → 선택 작업 실행**                    |
 
 각 단계의 화면 항목, 결과 위치, 상태 메시지(`needs-key`·`busy`·**서지 DB 반영 대기** 등)의 뜻은
@@ -107,12 +107,12 @@ paper-curation은 표준으로 **py312 환경**에서 돕니다. 같은 인터�
 | `figures/figN.png`      | 🐍 원본 함수 호출       | `run_update_force.extract_figures` (PyMuPDF)                                                                                                                 |
 | `review.md`             | 공통 로컬 리뷰 실행기   | `run_update_force.write_review` (`claude-sonnet-5`)                                                                                                          |
 | `originality.md`        | 🐍 원본 함수 호출       | `originality_extractor._extract_rule_based`                                                                                                                  |
-| 연관 논문(connections)  | paper-curation 연결 처리 | content-judged `lib.relation_judge.judge_if_enabled`; Curio 최소 리뷰는 연결을 만들지 않음                                                                  |
-| `index.html`            | 공통 Python 실행기      | `review_to_html.convert_review(keyless=True)` — 최소 리뷰에서 Audio·코퍼스 연결 주입 제외                                                                    |
-| `_papers_index.json`    | TS append               | topic은 Zotero collection에서, category는 paper-curation `classify_papers.py`에 위임                                                                         |
+| 연관 논문(connections)  | 공통 `related-papers` 기능 | 등록 후 `refresh_paper_connections.py`로 대상 논문만 검색·Sonnet 5.5 판정·양방향 연결 및 HTML 갱신 |
+| `index.html`            | 공통 Python 실행기      | 초기 리뷰 HTML 생성 후 연결 단계에서 대상·이웃 페이지를 다시 렌더링 |
+| `_papers_index.json`    | 공통 코퍼스 등록        | topic은 Zotero collection에서 가져오며, category가 없어도 연결 검색에 포함 |
 | topic index / timelines | 🐍 원본 파이프라인 호출 | 컬렉션 우클릭 `run_full.py --mode curate --source zotero --images changed` → `index.html`, `_category_*`, `research_timeline.png`, `category_timeline_*.png` |
 
-> originality·토픽 출력은 컬렉션 전체 처리 기능입니다. 관련 논문은 content-judged paper-curation 연결 처리에서 생성하며, Curio 최소 리뷰는 text·figure·review·HTML·서지 사이드카만 만들고 연결을 만들지 않습니다. 공통 런타임이나 선택한 제공자 키가 없으면 해당 요구사항을 표시하고 중단합니다. 대화의 PDF 추출은 기존 pdf.js 경로를 유지합니다.
+> originality·토픽 출력은 컬렉션 전체 처리 기능입니다. 리뷰 파일 등록 후 공통 `related-papers` 단계를 실행하며, 분류가 아직 없는 논문도 검색 대상에 포함합니다. 연결 단계 실패는 리뷰 등록을 취소하지 않습니다. 대화의 PDF 추출은 기존 pdf.js 경로를 유지합니다.
 
 ## API 키
 
@@ -145,10 +145,10 @@ paper-curation은 표준으로 **py312 환경**에서 돕니다. 같은 인터�
 - ✅ 우클릭 `paper-curation Review HTML 열기` — 이미 생성된 리뷰(index.html)를 브라우저로 바로 오픈 (생성 안 함)
 - ✅ 우클릭 `paper-curation AI 대화 (PDF Q&A)` — 논문 PDF를 컨텍스트로 멀티턴 질의응답, 상단에서 GPT·Anthropic·Gemini 모델 선택
 - ✅ 우클릭 `paper-curation Citedby` — 선택 논문의 DOI로 인용논문을 OpenAlex·Scopus·S2·arXiv에서 수집 → 독창성 추출 → (주제 입력 시) LLM 필터 + 5W1H 요약 → **자기완결 HTML 리포트**를 브라우저로 오픈. 리포트의 **[PDF 출력]** 버튼은 링크가 살아있는 PDF를 만들고, 내 라이브러리에 있는 논문은 `zotero://open-pdf`(없으면 서지정보)로 바로 열린다. 이어서 인용논문을 **Zotero에 일괄 등록**할 수 있다 (DOI·arXiv·제목 중복 자동 skip) → 그대로 `run_full --mode curate --source zotero` 로 이어짐
-- 최소 리뷰: **text·figure·review·HTML·bibliography.json**을 공통 Python 실행기로 생성하며 connections를 만들지 않음. 관련 논문은 content-judged paper-curation 연결 처리에서 생성.
+- 리뷰: **text·figure·review·HTML·bibliography.json** 생성·등록 후 공통 연결 처리를 자동 실행합니다.
 - ✅ Collection 우클릭 `이 컬렉션 전체 처리` — 신규 컬렉션은 alias를 물어 `config.json`에 등록한 뒤 Zotero sync → review → 주제분류 → narrative/main·category timeline → topic index까지 실행 (Cloudflare 배포 제외)
 - 컬렉션 전체 처리의 py312 자동 준비 — 지정 Python 우선, 없으면 관리형 venv/relocatable Python으로 bootstrap
-- 관련 논문은 paper-curation의 content-judged 연결 처리에서 생성. Curio 최소 리뷰는 연결을 만들지 않음.
+- 관련 논문은 공통 `related-papers` 기능으로 검색·판정하며, 미처리와 판정 결과 0건을 구분합니다.
 - index.html, topic 기록, 비파괴 덮어쓰기, ko/en 로케일. 최소 리뷰 HTML에는 운영자 키를 삽입하지 않음.
 - ✅ GitHub 릴리스 + 자동 업데이트 manifest
 

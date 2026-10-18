@@ -1,8 +1,7 @@
 pref-api-keys = API Keys
 pref-api-keys-hint = Select one review provider. There is no cross-provider fallback. Keys are stored in the shared OS keyring, not Zotero preferences; injected environment values take precedence.
 pref-review-provider = Review provider
-pref-review-budget = Review cost ceiling (optional)
-pref-review-budget-hint = A ceiling requires your current provider input/output rates. Unknown rates or an estimate over the ceiling block execution. Blank ceiling means no budget cap.
+
 pref-optional-providers = Other chat providers and optional features
 pref-anthropic-key = Anthropic API Key
 pref-openai-key = OpenAI API Key
@@ -19,7 +18,7 @@ pref-pc-root = paper-curation root
 pref-fallback-dir = Fallback output dir
 pref-overwrite =
     .label = Overwrite existing reviews
-pref-overwrite-hint = OFF (default): papers that already have a review are skipped. ON: existing review.md/index.html are overwritten (classification metadata preserved). Reviews created by Paper Curio itself are always regenerated regardless of this setting.
+pref-overwrite-hint = OFF (default): existing native reviews are skipped; Curio reviews are reused to retry connections. ON: reviews are overwritten, preserving classification metadata. Choosing Start over during processing bypasses the saved review cache regardless of this setting. Reviews and relationship judgment have no monetary ceiling.
 pref-python-path = Python path
 pref-python-path-hint = Python interpreter used to call paper-curation's original functions (figure extraction etc.). Must be the same py3.12 + PyMuPDF environment as paper-curation. Blank uses the default conda py312.
 

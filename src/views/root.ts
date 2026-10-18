@@ -271,6 +271,15 @@ function toast(headline: string) {
   })
 }
 
+/** Nonmodal review status: stay visible until the task starts its close timer. */
+function reviewProgressWindow(headline: string) {
+  return new ztoolkit.ProgressWindow(headline, {
+    closeOnClick: false,
+    closeTime: -1,
+    closeOtherProgressWindows: false,
+  })
+}
+
 /** 코퍼스 필요 기능 가드 — paper-curation(또는 fallback) 미설정 시 안내 토스트. */
 async function requirePaperCuration(): Promise<boolean> {
   if (await tryResolveOutputTarget()) return true
@@ -285,8 +294,74 @@ async function requirePaperCuration(): Promise<boolean> {
   return false
 }
 
+interface ActiveReviewRun {
+  controller: AbortController
+  targets: Zotero.Item[]
+  restart: boolean
+  regenerate: boolean
+  progress?: ReturnType<typeof reviewProgressWindow>
+  row: number
+}
+let activeReviewRun: ActiveReviewRun | undefined
+
 async function onReviewCommand(): Promise<void> {
-  const targets = getSelectedRegularItems()
+  if (activeReviewRun) {
+    const run = activeReviewRun
+    const prompt = Services.prompt
+    const choice = prompt.confirmEx(
+      Zotero.getMainWindow(),
+      getString("review-running-title"),
+      getString("review-running-choice", {
+        args: { title: run.targets[0]?.getDisplayTitle() || "" },
+      }),
+      (prompt.BUTTON_POS_0 * prompt.BUTTON_TITLE_IS_STRING) |
+        (prompt.BUTTON_POS_1 * prompt.BUTTON_TITLE_IS_STRING) |
+        prompt.BUTTON_POS_1_DEFAULT,
+      getString("review-restart"),
+      getString("review-wait"),
+      null,
+      null,
+      { value: false },
+    )
+    if (choice === 0 && !run.restart) {
+      run.restart = true
+      run.controller.abort()
+      run.progress?.changeLine({
+        idx: run.row,
+        type: "default",
+        text: getString("review-restarting"),
+        progress: 20,
+      })
+    }
+    return
+  }
+  const run: ActiveReviewRun = {
+    controller: new AbortController(),
+    targets: getSelectedRegularItems(),
+    restart: false,
+    regenerate: false,
+    row: 0,
+  }
+  activeReviewRun = run
+  try {
+    do {
+      run.restart = false
+      run.controller = new AbortController()
+      await runReviewCommand(run)
+      if (run.restart) {
+        run.progress?.close()
+        run.progress = undefined
+        run.regenerate = true
+      }
+    } while (run.restart)
+  } finally {
+    activeReviewRun = undefined
+  }
+}
+
+async function runReviewCommand(run: ActiveReviewRun): Promise<void> {
+  const targets = run.targets
+  const options = { signal: run.controller.signal, regenerate: run.regenerate }
 
   if (targets.length === 0) {
     toast(config.addonName)
@@ -307,28 +382,27 @@ async function onReviewCommand(): Promise<void> {
   if (targets.length === 1) {
     const item = targets[0]
     const title = item.getDisplayTitle()
-    const pw = toast(config.addonName)
+    const pw = reviewProgressWindow(config.addonName)
       .createLine({
         type: "default",
         text: getString("toast-running", { args: { title } }),
         progress: 20,
       })
       .show()
+    run.progress = pw
+    run.row = 0
     try {
-      const r = await processItem(item)
+      const r = await processItem(item, options)
       if (r.status === "partial") {
         pw.changeLine({
           type: "default",
-          text: `${getString("review-bookkeeping-failed")} ${r.indexHtmlPath} (${r.recovery})`,
+          text: `${getString(r.recovery === "retry-connections" ? "review-connections-failed" : "review-bookkeeping-failed")} ${r.indexHtmlPath} (${r.recovery}${r.connectionError ? `; ${r.connectionError}` : ""})`,
           progress: 100,
         })
       } else if (r.skipped) {
         pw.changeLine({
           type: "default",
-          text: getString(
-            r.skipReason === "cancelled" ? "review-cancelled" : "toast-skipped",
-            { args: { title: r.title } },
-          ),
+          text: getString("toast-skipped", { args: { title: r.title } }),
           progress: 100,
         })
       } else {
@@ -349,6 +423,7 @@ async function onReviewCommand(): Promise<void> {
         })
       }
     } catch (e: any) {
+      if (options.signal.aborted) return
       pw.changeLine({
         type: "fail",
         text: getString("toast-fail", {
@@ -370,10 +445,10 @@ async function onReviewCommand(): Promise<void> {
     skip = 0
   let aborted = false
 
-  const pw = new ztoolkit.ProgressWindow(
+  const pw = reviewProgressWindow(
     `${config.addonName} — ${getString("toast-batch-header", { args: { n: N } })}`,
-    { closeOnClick: false, closeTime: -1 },
   )
+  run.progress = pw
   for (const it of targets) {
     pw.createLine({
       type: "default",
@@ -393,6 +468,9 @@ async function onReviewCommand(): Promise<void> {
   }
 
   for (let i = 0; i < N; i++) {
+    if (options.signal.aborted) return
+    run.targets = targets.slice(i)
+    run.row = i
     if (aborted) {
       abort = N - i
       break
@@ -408,13 +486,13 @@ async function onReviewCommand(): Promise<void> {
       progress: 50,
     })
     try {
-      const r = await processItem(item)
+      const r = await processItem(item, options)
       if (r.status === "partial") {
         fail++
         pw.changeLine({
           idx: i,
           type: "default",
-          text: `${getString("review-bookkeeping-failed")} ${r.indexHtmlPath} (${r.recovery})`,
+          text: `${getString(r.recovery === "retry-connections" ? "review-connections-failed" : "review-bookkeeping-failed")} ${r.indexHtmlPath} (${r.recovery}${r.connectionError ? `; ${r.connectionError}` : ""})`,
           progress: 100,
         })
       } else if (r.skipped) {
@@ -422,10 +500,7 @@ async function onReviewCommand(): Promise<void> {
         pw.changeLine({
           idx: i,
           type: "default",
-          text: getString(
-            r.skipReason === "cancelled" ? "review-cancelled" : "toast-skipped",
-            { args: { title: r.title } },
-          ),
+          text: getString("toast-skipped", { args: { title: r.title } }),
           progress: 100,
         })
       } else {
@@ -444,6 +519,7 @@ async function onReviewCommand(): Promise<void> {
         })
       }
     } catch (e: any) {
+      if (options.signal.aborted) return
       fail++
       pw.changeLine({
         idx: i,

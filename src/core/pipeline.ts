@@ -14,6 +14,7 @@ import {
   localReviewViaBridge,
   LocalReviewRequest,
   corpusViaBridge,
+  featureViaBridge,
 } from "../extract/pybridge"
 import { pdfFilePath } from "../extract/pdfjs"
 import { getItemTopics } from "./categorize"
@@ -22,11 +23,9 @@ import { getString } from "../utils/locale"
 import { pipeline as log } from "../utils/loggers"
 import { ReviewTaskError, reviewStatusError } from "../utils/reviewError"
 
-declare const Services: any
-
 export interface ProcessResult {
   status: "completed" | "partial" | "skipped"
-  recovery?: "retry-registration" | "retry-zotero-marker"
+  recovery?: "retry-registration" | "retry-zotero-marker" | "retry-connections"
   slug: string
   title: string
   score?: number
@@ -36,28 +35,50 @@ export interface ProcessResult {
   hadPdf: boolean
   figures: number
   connections: number
+  connectionProcessing?: "completed" | "failed" | "not-started"
+  connectionError?: string
   bibliography?: "sidecar-only"
   bookkeeping?: "completed" | "failed"
   skipped?: boolean
-  skipReason?: "exists-native" | "exists-papercurio" | "cancelled"
+  skipReason?: "exists-native"
   overwritten?: boolean
 }
 
 let reviewInProgress = false
 
+export interface ReviewRunOptions {
+  signal?: AbortSignal
+  regenerate?: boolean
+}
+
+function checkReviewActive(options: ReviewRunOptions): void {
+  if (options.signal?.aborted) {
+    const error = new Error("Review restart requested")
+    error.name = "AbortError"
+    throw error
+  }
+}
+
 /** Serialize desktop writes; the engine separately locks each output directory. */
-export async function processItem(item: Zotero.Item): Promise<ProcessResult> {
+export async function processItem(
+  item: Zotero.Item,
+  options: ReviewRunOptions = {},
+): Promise<ProcessResult> {
   if (reviewInProgress) throw new Error(getString("review-already-running"))
   reviewInProgress = true
   try {
-    return await processLocalItem(item)
+    checkReviewActive(options)
+    return await processLocalItem(item, options)
   } finally {
     reviewInProgress = false
   }
 }
 
-/** The review action executes only the shared local-review capability. */
-async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
+/** Commit the review first, then run bounded shared connection enrichment. */
+async function processLocalItem(
+  item: Zotero.Item,
+  options: ReviewRunOptions,
+): Promise<ProcessResult> {
   const meta = getPaperMeta(item)
   const target = await resolveOutputTarget()
   const existing = await findExisting(target.papersDir, {
@@ -65,9 +86,9 @@ async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
     zoteroKey: meta.key,
     title: meta.title,
   })
+  checkReviewActive(options)
   const overwriteAllowed =
-    getPref("OVERWRITE_EXISTING") === true ||
-    (!!existing && isPaperCurioEntry(existing))
+    options.regenerate === true || getPref("OVERWRITE_EXISTING") === true
   let slug = existing
     ? existing.slug
     : buildSlug(await nextNumber(target.papersDir), meta.title)
@@ -87,11 +108,17 @@ async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
     skipped: true,
     skipReason: reason,
   })
-  if (existing && !overwriteAllowed && (await pathExists(indexHtmlPath))) {
+  if (
+    existing &&
+    !isPaperCurioEntry(existing) &&
+    !overwriteAllowed &&
+    (await pathExists(indexHtmlPath))
+  ) {
     return skipped("exists-native")
   }
 
   const pdfPath = await pdfFilePath(item)
+  checkReviewActive(options)
   if (!pdfPath) throw new ReviewTaskError("needs-pdf")
   const request: LocalReviewRequest = {
     schema_version: 1,
@@ -99,6 +126,7 @@ async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
     pdf_path: pdfPath,
     output_dir: slugDir,
     overwrite: overwriteAllowed,
+    ...(options.regenerate ? { regenerate: true } : {}),
     item: {
       key: meta.key,
       title: meta.title,
@@ -116,20 +144,9 @@ async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
   }
   request.provider = configuredProvider as LocalReviewRequest["provider"]
   request.credential_ref = `credential:${configuredProvider}`
-  const cap = getPrefStr("REVIEW_MAX_COST_USD")
-  if (cap) {
-    const inputRate = getPrefStr("REVIEW_INPUT_RATE")
-    const outputRate = getPrefStr("REVIEW_OUTPUT_RATE")
-    request.budget = {
-      max_cost_usd: Number(cap),
-      max_output_tokens: 4000,
-      ...(inputRate ? { input_per_million_usd: Number(inputRate) } : {}),
-      ...(outputRate ? { output_per_million_usd: Number(outputRate) } : {}),
-    }
-  }
   const plan = await localReviewViaBridge(target.root, request, false)
-  if (plan.status === "exists") return skipped("exists-native")
-  if (plan.status !== "ready") {
+  checkReviewActive(options)
+  if (!["ready", "exists"].includes(plan.status)) {
     throw reviewStatusError(plan.status)
   }
   const reservation = await corpusViaBridge(target.root, {
@@ -149,21 +166,17 @@ async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
   indexHtmlPath = joinPath(request.output_dir, "index.html")
   let registered = false
   try {
+    checkReviewActive(options)
     const finalPlan = await localReviewViaBridge(target.root, request, false)
+    checkReviewActive(options)
     if (!["ready", "exists"].includes(finalPlan.status)) {
       throw reviewStatusError(finalPlan.status)
     }
-    const confirmed = Services.prompt.confirm(
-      Zotero.getMainWindow(),
-      "Paper Curio — Review",
-      getString("review-plan-confirm", { args: { title: meta.title } }) +
-        "\n\nOutput: " +
-        request.output_dir +
-        "\n\n" +
-        JSON.stringify(finalPlan, null, 2),
-    )
-    if (!confirmed) return skipped("cancelled")
+    // Review Generation is the execution action. Keep both preflight checks,
+    // but do not interrupt its nonmodal progress window with a second prompt.
     const result = await localReviewViaBridge(target.root, request, true)
+    // Do not interrupt Python's atomic publication; stop at this safe boundary.
+    checkReviewActive(options)
     if (!["completed", "exists"].includes(result.status) || !result.outputs) {
       const partial =
         result.partial?.review_ready && result.partial.review
@@ -208,6 +221,7 @@ async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
         tags: ["paper", "papercurio-generated", ...finalTopics],
         bibliography_status: "sidecar-only",
       }
+      checkReviewActive(options)
       await corpusViaBridge(target.root, {
         op: "register",
         papers_dir: target.papersDir,
@@ -216,24 +230,75 @@ async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
         entry: { ...fresh, classifications: undefined },
       })
       registered = true
+      checkReviewActive(options)
       await ztoolkit.ExtraField.setExtraField(
         item,
         "papercurio",
         `${slug};${reviewDate}`,
       )
     } catch {
+      checkReviewActive(options)
       bookkeeping = "failed"
       log("review files ready; local index/marker update failed", slug)
     }
+    let connections = 0
+    let connectionError: string | undefined
+    let connectionProcessing: ProcessResult["connectionProcessing"] =
+      "not-started"
+    if (registered) {
+      try {
+        checkReviewActive(options)
+        const connected = await featureViaBridge(
+          target.root,
+          {
+            schema_version: 1,
+            feature: "related-papers",
+            provider: "anthropic",
+            credential_ref: "credential:anthropic",
+            params: { slug },
+          },
+          true,
+        )
+        checkReviewActive(options)
+        if (
+          connected.status !== "completed" ||
+          !Number.isInteger(connected.related_count) ||
+          connected.related_count < 0
+        ) {
+          connectionError = [
+            "needs-key",
+            "needs-runtime",
+            "insufficient-data",
+            "budget-exceeded",
+            "budget-unavailable",
+          ].includes(connected.status)
+            ? connected.status
+            : "failed"
+          throw new Error("Connection processing incomplete")
+        }
+        connections = connected.related_count
+        connectionProcessing = "completed"
+      } catch {
+        checkReviewActive(options)
+        connectionProcessing = "failed"
+        connectionError ??= "failed"
+        log("review preserved; related-paper processing requires retry", slug)
+      }
+    }
     log("review completed; bibliography integration pending", slug)
     return {
-      status: bookkeeping === "failed" ? "partial" : "completed",
+      status:
+        bookkeeping === "failed" || connectionProcessing !== "completed"
+          ? "partial"
+          : "completed",
       recovery:
         bookkeeping === "failed"
           ? registered
             ? "retry-zotero-marker"
             : "retry-registration"
-          : undefined,
+          : connectionProcessing !== "completed"
+            ? "retry-connections"
+            : undefined,
       slug,
       title: meta.title,
       score,
@@ -242,12 +307,12 @@ async function processLocalItem(item: Zotero.Item): Promise<ProcessResult> {
       source: target.source,
       hadPdf: true,
       figures: result.figures || 0,
-      connections: 0,
+      connections,
+      connectionProcessing,
+      connectionError,
       bibliography: "sidecar-only",
       bookkeeping,
       overwritten: !!existing,
-      skipped: result.status === "exists",
-      skipReason: result.status === "exists" ? "exists-papercurio" : undefined,
     }
   } finally {
     if (!registered) {

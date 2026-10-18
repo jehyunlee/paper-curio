@@ -826,6 +826,7 @@ export interface LocalReviewRequest {
   output_dir: string
   item: Record<string, unknown>
   overwrite: boolean
+  regenerate?: boolean
   provider?: "anthropic" | "openai" | "google"
   model?: string
   credential_ref?: string

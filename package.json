@@ -1,6 +1,6 @@
 {
   "name": "paper-curio",
-  "version": "0.11.5",
+  "version": "0.11.6",
   "description": "Chat with papers and generate Sonnet reviews through the shared paper-curation engine",
   "config": {
     "addonName": "Paper Curio",

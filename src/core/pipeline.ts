@@ -253,8 +253,6 @@ async function processLocalItem(
           {
             schema_version: 1,
             feature: "related-papers",
-            provider: "anthropic",
-            credential_ref: "credential:anthropic",
             params: { slug },
           },
           true,

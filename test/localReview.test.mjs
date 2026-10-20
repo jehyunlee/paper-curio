@@ -169,8 +169,6 @@ try {
       request: {
         schema_version: 1,
         feature: "related-papers",
-        provider: "anthropic",
-        credential_ref: "credential:anthropic",
         params: { slug: "002_Reserved" },
       },
     },

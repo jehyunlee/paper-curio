@@ -306,7 +306,7 @@ export async function openFeaturePanel(
               ...(rateOutput.value
                 ? { output_per_million_usd: Number(rateOutput.value) }
                 : {}),
-              max_output_tokens: 4000,
+              max_output_tokens: 6000,
             }
           return result
         }

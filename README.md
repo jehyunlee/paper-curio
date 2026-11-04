@@ -6,7 +6,7 @@
 
 최신 paper-curation과 Python 3.12를 연결하고 **선택한 리뷰 제공자의 키**를 OS 키 저장소에 저장합니다. 기본은 Anthropic Sonnet 5이며 OpenAI·Google을 명시적으로 선택할 수 있습니다. Review Generation은 별도 시작 확인 없이 **추출 → 리뷰 → HTML + bibliography.json → 등록 → 관련 논문 검색·순위화**를 실행합니다. 실행 중 다시 누르면 **다시 만들기 / 생성 기다리기**를 선택합니다. 다시 만들기는 현재 단계가 안전하게 끝나고 예약 정리가 완료된 뒤 같은 논문을 캐시 없이 새로 생성합니다. 이미 발생한 API 비용은 취소되지 않습니다. 리뷰의 **금액 상한은 없습니다**. 내부 준비 상태·리뷰 자격증명 검사는 유지합니다.
 
-리뷰 실패 시 다른 제공자로 자동 전송하지 않습니다. 관련 논문 처리는 로컬 임베딩 + BM25로 새 논문의 이웃만 고르고, 고른 쌍마다 Anthropic Sonnet 5가 두 원문 발췌를 비교해 분야·연구 문제·방법 차이를 설명합니다. 이 설명 단계에는 Anthropic 키가 필요하며 발췌가 Anthropic으로 전송됩니다. 전체 재분류·검색 인덱스·타임라인·배포·서지 DB 갱신은 하지 않습니다. 연결 처리 실패는 **리뷰 저장됨 / 연결 처리 미완료**로 표시하고 리뷰를 보존합니다. 덮어쓰기를 끄고 같은 Curio 리뷰를 다시 실행하면 기존 리뷰를 재사용해 연결을 재시도합니다. 진행창은 처리 종료까지 유지되는 비모달 창이라 다른 논문 열기·추가를 막지 않습니다. **서지 DB 반영 대기**는 별도 상태입니다.
+리뷰 실패 시 다른 제공자로 자동 전송하지 않습니다. 관련 논문 처리는 로컬 임베딩 + BM25로 새 논문의 이웃만 고르고, 고른 쌍마다 Anthropic Sonnet 5가 두 논문의 요약(제목·연도·저자·분류·essence·originality)을 비교해 분야·연구 문제·방법 차이를 설명합니다. 원문은 보내지 않으며(쌍당 입력 약 2천 토큰), 이 설명 단계에는 Anthropic 키가 필요합니다. 설명이 검증을 통과하지 못한 쌍은 연결에서 빠집니다. 전체 재분류·검색 인덱스·타임라인·배포·서지 DB 갱신은 하지 않습니다. 연결 처리 실패는 **리뷰 저장됨 / 연결 처리 미완료**로 표시하고 리뷰를 보존합니다. 덮어쓰기를 끄고 같은 Curio 리뷰를 다시 실행하면 기존 리뷰를 재사용해 연결을 재시도합니다. 진행창은 처리 종료까지 유지되는 비모달 창이라 다른 논문 열기·추가를 막지 않습니다. **서지 DB 반영 대기**는 별도 상태입니다.
 
 우클릭 **Paper Curation 기능 모듈**은 CLI와 동일한 레지스트리·계획·결과를 사용합니다. 읽기/내보내기·논문 AI·컬렉션 관리에서 시작하고 오디오·타임라인·배포·메일은 별도로 선택합니다. 요약·질의는 로컬 Ollama `qwen3.8:27b-mlx`도 지원하며 검증 가능한 원문 인용이 없는 답변은 거부합니다. Comparison 메뉴도 이 공통 비교 기능을 사용하며 자동 그림 생성은 하지 않습니다.
 
@@ -107,7 +107,7 @@ paper-curation은 표준으로 **py312 환경**에서 돕니다. 같은 인터�
 | `figures/figN.png`      | 🐍 원본 함수 호출       | `run_update_force.extract_figures` (PyMuPDF)                                                                                                                 |
 | `review.md`             | 공통 로컬 리뷰 실행기   | `run_update_force.write_review` (`claude-sonnet-5`)                                                                                                          |
 | `originality.md`        | 🐍 원본 함수 호출       | `originality_extractor._extract_rule_based`                                                                                                                  |
-| 연관 논문(connections)  | 공통 `related-papers` 기능 | 등록 후 `refresh_paper_connections.py`로 대상 논문만 로컬 임베딩 + BM25 검색·순위화, Anthropic 원문 비교 설명, 양방향 연결 및 HTML 갱신 |
+| 연관 논문(connections)  | 공통 `related-papers` 기능 | 등록 후 `refresh_paper_connections.py`로 대상 논문만 로컬 임베딩 + BM25 검색·순위화, Anthropic 요약 비교 설명, 양방향 연결 및 HTML 갱신 |
 | `index.html`            | 공통 Python 실행기      | 초기 리뷰 HTML 생성 후 연결 단계에서 대상·이웃 페이지를 다시 렌더링 |
 | `_papers_index.json`    | 공통 코퍼스 등록        | topic은 Zotero collection에서 가져오며, category가 없어도 연결 검색에 포함 |
 | topic index / timelines | 🐍 원본 파이프라인 호출 | 컬렉션 우클릭 `run_full.py --mode curate --source zotero --images changed` → `index.html`, `_category_*`, `research_timeline.png`, `category_timeline_*.png` |
@@ -148,7 +148,7 @@ paper-curation은 표준으로 **py312 환경**에서 돕니다. 같은 인터�
 - 리뷰: **text·figure·review·HTML·bibliography.json** 생성·등록 후 공통 연결 처리를 자동 실행합니다.
 - ✅ Collection 우클릭 `이 컬렉션 전체 처리` — 신규 컬렉션은 alias를 물어 `config.json`에 등록한 뒤 Zotero sync → review → 주제분류 → narrative/main·category timeline → topic index까지 실행 (Cloudflare 배포 제외)
 - 컬렉션 전체 처리의 py312 자동 준비 — 지정 Python 우선, 없으면 관리형 venv/relocatable Python으로 bootstrap
-- 관련 논문은 공통 `related-papers` 기능으로 로컬 임베딩 + BM25 검색·순위화와 Anthropic 원문 비교 설명을 수행하며, 미처리와 검색 결과 0건을 구분합니다.
+- 관련 논문은 공통 `related-papers` 기능으로 로컬 임베딩 + BM25 검색·순위화와 Anthropic 요약 비교 설명을 수행하며, 미처리와 검색 결과 0건을 구분합니다.
 - index.html, topic 기록, 비파괴 덮어쓰기, ko/en 로케일. 최소 리뷰 HTML에는 운영자 키를 삽입하지 않음.
 - ✅ GitHub 릴리스 + 자동 업데이트 manifest
 

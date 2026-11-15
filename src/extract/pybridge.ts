@@ -689,6 +689,52 @@ function lastJson(stdout: string): any {
   }
 }
 
+export type InstitutionInfoResult =
+  | { ok: true; report: string; institutions: number; authors: number }
+  | { ok: false; reason: string }
+
+/**
+ * One paper's institutions from the bibliography DB, rendered to a
+ * self-contained HTML page (`pipeline/institution_info.py`, read-only).
+ * `reason` is `not-ingested` when the DB does not hold the paper yet.
+ */
+export async function institutionInfoViaBridge(
+  root: string,
+  slug: string,
+  lang: "ko" | "en",
+): Promise<InstitutionInfoResult> {
+  const script = joinPath(root, "pipeline", "institution_info.py")
+  const dir = joinPath(PathUtils.profileDir, "papercurio", "institutions")
+  await IOUtils.makeDirectory(dir, {
+    createAncestors: true,
+    ignoreExisting: true,
+  })
+  const out = joinPath(dir, `${slug}.html`)
+  const result = await runPython([
+    script,
+    "--slug",
+    slug,
+    "--out",
+    out,
+    "--lang",
+    lang,
+  ])
+  const data = lastJson(result.stdout)
+  if (result.ok && data?.ok && data.report) {
+    return {
+      ok: true,
+      report: String(data.report),
+      institutions: Number(data.institutions ?? 0),
+      authors: Number(data.authors ?? 0),
+    }
+  }
+  log("institution info 실패", `code=${result.code}`, result.stderr.slice(-200))
+  return {
+    ok: false,
+    reason: String(data?.reason ?? (result.stderr.slice(-160) || "unknown")),
+  }
+}
+
 /** Private pipe: the read response must never be logged or persisted. */
 export async function credentialViaBridge(
   root: string,

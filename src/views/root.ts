@@ -13,6 +13,7 @@ import {
   runFullViaBridge,
   registerCollectionViaBridge,
   citedbyViaBridge,
+  institutionInfoViaBridge,
 } from "../extract/pybridge"
 import { topicForCollection, resolveCollectionTopic } from "../core/categorize"
 import { findExisting } from "../core/papers-index"
@@ -35,6 +36,7 @@ const OPEN_REVIEW_ID = `${config.addonRef}-itemmenu-open-review`
 const CHAT_ID = `${config.addonRef}-itemmenu-chat`
 const COMPARE_STUDY_ID = `${config.addonRef}-itemmenu-compare-study`
 const CITEDBY_ID = `${config.addonRef}-itemmenu-citedby`
+const INSTITUTIONS_ID = `${config.addonRef}-itemmenu-institutions`
 const DEPLOY_ID = `${config.addonRef}-collectionmenu-deploy`
 const RUN_FULL_ID = `${config.addonRef}-collectionmenu-runfull`
 const FEATURES_ID = `${config.addonRef}-itemmenu-features`
@@ -58,6 +60,15 @@ export function registerItemMenu(): void {
     icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
     commandListener: () => {
       void onOpenReviewCommand()
+    },
+  })
+  ztoolkit.Menu.register("item", {
+    tag: "menuitem",
+    id: INSTITUTIONS_ID,
+    label: getString("itemmenu-institutions"),
+    icon: `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`,
+    commandListener: () => {
+      void onInstitutionInfoCommand()
     },
   })
   ztoolkit.Menu.register("item", {
@@ -123,6 +134,7 @@ export function registerItemMenu(): void {
   attachMenuTip(CHAT_ID, getString("itemmenu-chat-tip"))
   attachMenuTip(COMPARE_STUDY_ID, getString("itemmenu-comparative-study-tip"))
   attachMenuTip(CITEDBY_ID, getString("itemmenu-citedby-tip"))
+  attachMenuTip(INSTITUTIONS_ID, getString("itemmenu-institutions-tip"))
   log("item menu 등록 완료")
 }
 
@@ -219,6 +231,7 @@ export function unregisterItemMenu(): void {
     ztoolkit.Menu.unregister(FEATURES_ID)
     ztoolkit.Menu.unregister(MENU_ID)
     ztoolkit.Menu.unregister(OPEN_REVIEW_ID)
+    ztoolkit.Menu.unregister(INSTITUTIONS_ID)
     ztoolkit.Menu.unregister(CHAT_ID)
     ztoolkit.Menu.unregister(COMPARE_STUDY_ID)
     ztoolkit.Menu.unregister(COMPARE_ID)
@@ -592,6 +605,82 @@ async function onOpenReviewCommand(): Promise<void> {
     .show()
     .startCloseTimer(opened > 0 ? 4000 : 6000)
 }
+/**
+ * 선택 논문의 연구기관 정보(소속기관·상위기관·도시·국가, 저자별 소속)를
+ * 서지 DB에서 읽어 HTML로 연다. 읽기 전용 — 리뷰·DB를 만들지 않는다.
+ */
+async function onInstitutionInfoCommand(): Promise<void> {
+  const targets = getSelectedRegularItems()
+  if (!(await requirePaperCuration())) return
+  if (targets.length === 0) {
+    toast(config.addonName)
+      .createLine({
+        type: "fail",
+        text: getString("toast-no-items"),
+        progress: 100,
+      })
+      .show()
+      .startCloseTimer(4000)
+    return
+  }
+
+  const target = await resolveOutputTarget()
+  const lang = String(Zotero.locale || "").startsWith("ko") ? "ko" : "en"
+  let opened = 0
+  const problems: string[] = []
+  for (const it of targets) {
+    const title = it.getDisplayTitle().slice(0, 50)
+    try {
+      const entry = await findExisting(target.papersDir, {
+        doi: String(it.getField("DOI") || ""),
+        zoteroKey: it.key,
+        title: it.getDisplayTitle(),
+      })
+      if (!entry?.slug) {
+        problems.push(
+          getString("toast-institutions-no-review", { args: { title } }),
+        )
+        continue
+      }
+      const r = await institutionInfoViaBridge(target.root, entry.slug, lang)
+      if (r.ok) {
+        ;(Zotero as any).launchFile(r.report)
+        opened++
+      } else if (r.reason === "not-ingested") {
+        problems.push(
+          getString("toast-institutions-not-ingested", { args: { title } }),
+        )
+      } else {
+        problems.push(
+          getString("toast-institutions-fail", {
+            args: { title, err: r.reason.slice(0, 120) },
+          }),
+        )
+      }
+    } catch (e) {
+      log("institution info 실패", e)
+      problems.push(
+        getString("toast-institutions-fail", {
+          args: { title, err: String(e).slice(0, 120) },
+        }),
+      )
+    }
+  }
+
+  const pw = toast(config.addonName)
+  if (opened > 0) {
+    pw.createLine({
+      type: "success",
+      text: getString("toast-institutions-opened", { args: { opened } }),
+      progress: 100,
+    })
+  }
+  for (const text of problems) {
+    pw.createLine({ type: "fail", text, progress: 100 })
+  }
+  pw.show().startCloseTimer(problems.length ? 8000 : 4000)
+}
+
 /** 2편 이상 선택 → (리뷰 없는 논문은 자동 생성) → 비교 HTML → 브라우저 오픈. */
 
 /**

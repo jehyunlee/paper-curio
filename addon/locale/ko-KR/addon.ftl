@@ -59,7 +59,7 @@ toast-no-provider = LLM API key가 설정되지 않았습니다. Settings → Pa
 
 # 토스트 — 단일
 toast-running = 리뷰 생성 중: { $title }
-toast-done-one = 리뷰 완료: { $title } (점수 { $score }, { $provider }); 서지 DB 반영 대기
+toast-done-one = 리뷰 완료: { $title } (점수 { $score }, { $provider })
 review-needs-pdf = 리뷰 생성 전에 로컬 논문 PDF를 첨부하세요.
 review-already-running = 다른 데스크톱 리뷰가 실행 중입니다. 완료 후 다시 실행하세요.
 review-running-title = 리뷰 생성 중
@@ -70,7 +70,7 @@ review-restarting = 다시 만들기를 요청했습니다. 현재 처리 단계
 review-preflight-failed = 리뷰에는 paper-curation, Python 3.12와 선택한 제공자의 API 자격증명이 필요합니다.
 review-execution-failed = 리뷰 실행 실패. 다른 제공자는 호출하지 않았습니다.
 
-review-bookkeeping-failed = 리뷰 파일은 완성됐지만 목록/마커 갱신에 실패했습니다. HTML 직접 열기:
+review-bookkeeping-failed = 리뷰 파일은 완성됐지만 목록·마커·서지 DB 갱신에 실패했습니다. HTML 직접 열기:
 review-connections-failed = 리뷰는 저장됐지만 관련 논문 처리가 끝나지 않았습니다. 덮어쓰기를 끄고 Review Generation을 다시 실행하면 리뷰를 재생성하지 않고 재시도합니다. HTML 열기:
 review-partial-saved = 리뷰 텍스트는 보존했지만 HTML 묶음은 게시하지 못했습니다. 보존된 리뷰:
 toast-skipped = 건너뜀(이미 review 있음): { $title } — 덮어쓰려면 설정에서 'Overwrite existing' 활성화
@@ -80,7 +80,7 @@ toast-fail = 실패: { $title } — { $err }
 toast-batch-header = 일괄 리뷰 생성 ({ $n }건)
 toast-pending = 대기 중: { $title }
 toast-running-batch = 처리 중 ({ $i }/{ $n }): { $title }
-toast-done-line = 리뷰 완료: { $title } ({ $score }); 서지 DB 반영 대기
+toast-done-line = 리뷰 완료: { $title } ({ $score })
 toast-batch-summary = 완료 — 성공 { $ok } / 건너뜀 { $skip } / 실패 { $fail } / 중단 { $abort }
 
 # 컬렉션 메뉴 — 웹 배포

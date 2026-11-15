@@ -283,7 +283,7 @@ async function processLocalItem(
         log("review preserved; related-paper processing requires retry", slug)
       }
     }
-    log("review completed; bibliography integration pending", slug)
+    log("review completed", slug)
     return {
       status:
         bookkeeping === "failed" || connectionProcessing !== "completed"

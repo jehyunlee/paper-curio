@@ -59,7 +59,7 @@ toast-no-provider = No LLM API key configured. Set one in Settings → Paper Cur
 
 # Toasts — single
 toast-running = Generating review: { $title }
-toast-done-one = Review ready: { $title } (score { $score }, { $provider }); bibliography DB integration pending
+toast-done-one = Review ready: { $title } (score { $score }, { $provider })
 review-needs-pdf = Attach a local paper PDF before generating a review.
 review-already-running = Another desktop review is already running. Wait for it to finish before starting another.
 review-running-title = Review generation in progress
@@ -70,7 +70,7 @@ review-restarting = Restart requested — waiting for the current processing sta
 review-preflight-failed = Review requires paper-curation, Python 3.12 and the selected provider's API credential.
 review-execution-failed = Review failed; no other provider was called.
 
-review-bookkeeping-failed = Review files are ready, but local index/marker update failed. Open HTML directly:
+review-bookkeeping-failed = Review files are ready, but the local index, marker or bibliography DB update failed. Open HTML directly:
 review-connections-failed = Review saved, but related-paper processing is incomplete. Run Review Generation again with overwrite disabled to retry without regenerating the review. Open HTML:
 review-partial-saved = Review text is preserved, but the HTML bundle was not published. Saved review:
 toast-skipped = Skipped (review exists): { $title } — enable 'Overwrite existing' in Settings to replace
@@ -80,7 +80,7 @@ toast-fail = Failed: { $title } — { $err }
 toast-batch-header = Batch review ({ $n })
 toast-pending = Pending: { $title }
 toast-running-batch = Processing ({ $i }/{ $n }): { $title }
-toast-done-line = Review ready: { $title } ({ $score }); bibliography DB pending
+toast-done-line = Review ready: { $title } ({ $score })
 toast-batch-summary = Done — { $ok } ok / { $skip } skipped / { $fail } failed / { $abort } aborted
 
 # Collection menu — web deploy

@@ -607,7 +607,8 @@ async function onOpenReviewCommand(): Promise<void> {
 }
 /**
  * 선택 논문의 연구기관 정보(소속기관·상위기관·도시·국가, 저자별 소속)를
- * 서지 DB에서 읽어 HTML로 연다. 읽기 전용 — 리뷰·DB를 만들지 않는다.
+ * 서지 DB에서 읽어 표로 된 HTML을 별도 창(Zotero 뷰어)에 띄운다.
+ * 읽기 전용 — 리뷰·DB를 만들지 않는다. 여러 편이면 한 창에 함께 보인다.
  */
 async function onInstitutionInfoCommand(): Promise<void> {
   const targets = getSelectedRegularItems()
@@ -626,59 +627,53 @@ async function onInstitutionInfoCommand(): Promise<void> {
 
   const target = await resolveOutputTarget()
   const lang = String(Zotero.locale || "").startsWith("ko") ? "ko" : "en"
-  let opened = 0
-  const problems: string[] = []
+  const papers: { slug?: string; title: string }[] = []
   for (const it of targets) {
-    const title = it.getDisplayTitle().slice(0, 50)
+    const title = it.getDisplayTitle()
+    let slug: string | undefined
     try {
       const entry = await findExisting(target.papersDir, {
         doi: String(it.getField("DOI") || ""),
         zoteroKey: it.key,
-        title: it.getDisplayTitle(),
+        title,
       })
-      if (!entry?.slug) {
-        problems.push(
-          getString("toast-institutions-no-review", { args: { title } }),
-        )
-        continue
-      }
-      const r = await institutionInfoViaBridge(target.root, entry.slug, lang)
-      if (r.ok) {
-        ;(Zotero as any).launchFile(r.report)
-        opened++
-      } else if (r.reason === "not-ingested") {
-        problems.push(
-          getString("toast-institutions-not-ingested", { args: { title } }),
-        )
-      } else {
-        problems.push(
-          getString("toast-institutions-fail", {
-            args: { title, err: r.reason.slice(0, 120) },
-          }),
-        )
-      }
+      slug = entry?.slug || undefined
     } catch (e) {
-      log("institution info 실패", e)
-      problems.push(
-        getString("toast-institutions-fail", {
-          args: { title, err: String(e).slice(0, 120) },
-        }),
-      )
+      log("institution info: 코퍼스 조회 실패", e)
     }
+    papers.push({ slug, title })
   }
 
-  const pw = toast(config.addonName)
-  if (opened > 0) {
-    pw.createLine({
-      type: "success",
-      text: getString("toast-institutions-opened", { args: { opened } }),
-      progress: 100,
-    })
+  const r = await institutionInfoViaBridge(target.root, papers, lang)
+  if (!r.ok) {
+    toast(config.addonName)
+      .createLine({
+        type: "fail",
+        text: getString("toast-institutions-fail", {
+          args: { err: r.reason.slice(0, 160) },
+        }),
+        progress: 100,
+      })
+      .show()
+      .startCloseTimer(8000)
+    return
   }
-  for (const text of problems) {
-    pw.createLine({ type: "fail", text, progress: 100 })
+  try {
+    const uri = Zotero.File.pathToFileURI(r.report)
+    ;(Zotero as any).openInViewer(uri)
+  } catch (e) {
+    log("institution info 창 열기 실패", e)
+    toast(config.addonName)
+      .createLine({
+        type: "fail",
+        text: getString("toast-institutions-fail", {
+          args: { err: String(e).slice(0, 160) },
+        }),
+        progress: 100,
+      })
+      .show()
+      .startCloseTimer(8000)
   }
-  pw.show().startCloseTimer(problems.length ? 8000 : 4000)
 }
 
 /** 2편 이상 선택 → (리뷰 없는 논문은 자동 생성) → 비교 HTML → 브라우저 오픈. */

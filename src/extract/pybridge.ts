@@ -690,17 +690,18 @@ function lastJson(stdout: string): any {
 }
 
 export type InstitutionInfoResult =
-  | { ok: true; report: string; institutions: number; authors: number }
+  | { ok: true; report: string; shown: number; papers: number }
   | { ok: false; reason: string }
 
 /**
- * One paper's institutions from the bibliography DB, rendered to a
- * self-contained HTML page (`pipeline/institution_info.py`, read-only).
- * `reason` is `not-ingested` when the DB does not hold the paper yet.
+ * The selected papers' institutions from the bibliography DB, rendered to one
+ * self-contained HTML page of tables (`pipeline/institution_info.py`,
+ * read-only). Reviewed papers go by corpus slug; papers without a review are
+ * listed by title so the page can say so.
  */
 export async function institutionInfoViaBridge(
   root: string,
-  slug: string,
+  papers: { slug?: string; title: string }[],
   lang: "ko" | "en",
 ): Promise<InstitutionInfoResult> {
   const script = joinPath(root, "pipeline", "institution_info.py")
@@ -709,29 +710,34 @@ export async function institutionInfoViaBridge(
     createAncestors: true,
     ignoreExisting: true,
   })
-  const out = joinPath(dir, `${slug}.html`)
-  const result = await runPython([
-    script,
-    "--slug",
-    slug,
-    "--out",
-    out,
-    "--lang",
-    lang,
-  ])
+  const out = joinPath(dir, `institutions-${Date.now()}.html`)
+  const args = [script, "--out", out, "--lang", lang]
+  for (const paper of papers) {
+    if (paper.slug) args.push("--paper", paper.slug)
+    else args.push("--unreviewed", paper.title)
+  }
+  const result = await runPython(args)
   const data = lastJson(result.stdout)
   if (result.ok && data?.ok && data.report) {
     return {
       ok: true,
       report: String(data.report),
-      institutions: Number(data.institutions ?? 0),
-      authors: Number(data.authors ?? 0),
+      shown: Number(data.shown ?? 0),
+      papers: Number(data.papers ?? 0),
     }
   }
-  log("institution info 실패", `code=${result.code}`, result.stderr.slice(-200))
+  log(
+    "institution info 실패",
+    `code=${result.code}`,
+    String(data?.detail ?? ""),
+    result.stderr.slice(-200),
+  )
   return {
     ok: false,
-    reason: String(data?.reason ?? (result.stderr.slice(-160) || "unknown")),
+    reason:
+      [data?.reason, data?.detail].filter(Boolean).join(": ") ||
+      result.stderr.slice(-160) ||
+      "unknown",
   }
 }
 

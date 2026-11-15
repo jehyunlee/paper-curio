@@ -143,7 +143,7 @@ paper-curation은 표준으로 **py312 환경**에서 돕니다. 같은 인터�
 
 - ✅ 우클릭 단일/다중 처리 + 진행 윈도우
 - ✅ 우클릭 `paper-curation Review HTML 열기` — 이미 생성된 리뷰(index.html)를 브라우저로 바로 오픈 (생성 안 함)
-- ✅ 우클릭 `paper-curation 연구기관 정보 보기` — 서지 DB에서 그 논문의 소속기관·상위기관·도시·국가(ROR 링크·출처)와 저자별 소속을 읽어 HTML로 오픈 (읽기 전용, 서지 DB에 아직 없으면 그렇게 알림)
+- ✅ 우클릭 `paper-curation 연구기관 정보 보기` — 서지 DB에서 그 논문의 소속기관·상위기관·도시·국가(ROR 링크·출처)와 저자별 소속을 읽어 **별도 창에 표(HTML)로** 보여줌. 여러 편을 고르면 한 창에 함께 (읽기 전용, 리뷰가 없거나 서지 DB에 아직 없는 논문은 그 사유를 표시)
 - ✅ 우클릭 `paper-curation AI 대화 (PDF Q&A)` — 논문 PDF를 컨텍스트로 멀티턴 질의응답, 상단에서 GPT·Anthropic·Gemini 모델 선택
 - ✅ 우클릭 `paper-curation Citedby` — 선택 논문의 DOI로 인용논문을 OpenAlex·Scopus·S2·arXiv에서 수집 → 독창성 추출 → (주제 입력 시) LLM 필터 + 5W1H 요약 → **자기완결 HTML 리포트**를 브라우저로 오픈. 리포트의 **[PDF 출력]** 버튼은 링크가 살아있는 PDF를 만들고, 내 라이브러리에 있는 논문은 `zotero://open-pdf`(없으면 서지정보)로 바로 열린다. 이어서 인용논문을 **Zotero에 일괄 등록**할 수 있다 (DOI·arXiv·제목 중복 자동 skip) → 그대로 `run_full --mode curate --source zotero` 로 이어짐
 - 리뷰: **text·figure·review·HTML·bibliography.json** 생성·등록 후 공통 연결 처리를 자동 실행합니다.

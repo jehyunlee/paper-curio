@@ -1,7 +1,14 @@
 import { config } from "../../package.json"
 import { getString } from "../utils/locale"
 import { getSelectedRegularItems } from "../apis/zotero/item"
-import { processItem } from "../core/pipeline"
+import {
+  activeKeys,
+  enqueueReviews,
+  queueBusy,
+  queueJobs,
+  restartReviews,
+} from "../core/reviewQueue"
+import { showReviewStatus } from "./reviewStatus"
 import { hasAnyProvider } from "../llm"
 import { menu as log } from "../utils/loggers"
 import {
@@ -25,7 +32,6 @@ import {
 import type { CitingPaper } from "../apis/zotero/register"
 import { openChatForSelection, openComparativeStudy } from "./chat"
 import { openFeaturePanel } from "./features"
-import { reviewErrorMessage } from "../utils/reviewError"
 
 declare const Services: any
 
@@ -284,15 +290,6 @@ function toast(headline: string) {
   })
 }
 
-/** Nonmodal review status: stay visible until the task starts its close timer. */
-function reviewProgressWindow(headline: string) {
-  return new ztoolkit.ProgressWindow(headline, {
-    closeOnClick: false,
-    closeTime: -1,
-    closeOtherProgressWindows: false,
-  })
-}
-
 /** 코퍼스 필요 기능 가드 — paper-curation(또는 fallback) 미설정 시 안내 토스트. */
 async function requirePaperCuration(): Promise<boolean> {
   if (await tryResolveOutputTarget()) return true
@@ -307,75 +304,13 @@ async function requirePaperCuration(): Promise<boolean> {
   return false
 }
 
-interface ActiveReviewRun {
-  controller: AbortController
-  targets: Zotero.Item[]
-  restart: boolean
-  regenerate: boolean
-  progress?: ReturnType<typeof reviewProgressWindow>
-  row: number
-}
-let activeReviewRun: ActiveReviewRun | undefined
-
+/**
+ * Review Generation adds the selected papers to the review queue and returns.
+ * Reviews run in parallel; the title-bar badge shows progress and stays until
+ * the finished batch is opened. Papers already in the queue can be restarted.
+ */
 async function onReviewCommand(): Promise<void> {
-  if (activeReviewRun) {
-    const run = activeReviewRun
-    const prompt = Services.prompt
-    const choice = prompt.confirmEx(
-      Zotero.getMainWindow(),
-      getString("review-running-title"),
-      getString("review-running-choice", {
-        args: { title: run.targets[0]?.getDisplayTitle() || "" },
-      }),
-      (prompt.BUTTON_POS_0 * prompt.BUTTON_TITLE_IS_STRING) |
-        (prompt.BUTTON_POS_1 * prompt.BUTTON_TITLE_IS_STRING) |
-        prompt.BUTTON_POS_1_DEFAULT,
-      getString("review-restart"),
-      getString("review-wait"),
-      null,
-      null,
-      { value: false },
-    )
-    if (choice === 0 && !run.restart) {
-      run.restart = true
-      run.controller.abort()
-      run.progress?.changeLine({
-        idx: run.row,
-        type: "default",
-        text: getString("review-restarting"),
-        progress: 20,
-      })
-    }
-    return
-  }
-  const run: ActiveReviewRun = {
-    controller: new AbortController(),
-    targets: getSelectedRegularItems(),
-    restart: false,
-    regenerate: false,
-    row: 0,
-  }
-  activeReviewRun = run
-  try {
-    do {
-      run.restart = false
-      run.controller = new AbortController()
-      await runReviewCommand(run)
-      if (run.restart) {
-        run.progress?.close()
-        run.progress = undefined
-        run.regenerate = true
-      }
-    } while (run.restart)
-  } finally {
-    activeReviewRun = undefined
-  }
-}
-
-async function runReviewCommand(run: ActiveReviewRun): Promise<void> {
-  const targets = run.targets
-  const options = { signal: run.controller.signal, regenerate: run.regenerate }
-
+  const targets = getSelectedRegularItems()
   if (targets.length === 0) {
     toast(config.addonName)
       .createLine({
@@ -387,169 +322,47 @@ async function runReviewCommand(run: ActiveReviewRun): Promise<void> {
       .startCloseTimer(4000)
     return
   }
-
   // The shared engine reports the selected review capability's requirements.
   if (!(await requirePaperCuration())) return
 
-  // ── 단일 ──
-  if (targets.length === 1) {
-    const item = targets[0]
-    const title = item.getDisplayTitle()
-    const pw = reviewProgressWindow(config.addonName)
-      .createLine({
-        type: "default",
-        text: getString("toast-running", { args: { title } }),
-        progress: 20,
-      })
-      .show()
-    run.progress = pw
-    run.row = 0
-    try {
-      const r = await processItem(item, options)
-      if (r.status === "partial") {
-        pw.changeLine({
-          type: "default",
-          text: `${getString(r.recovery === "retry-connections" ? "review-connections-failed" : "review-bookkeeping-failed")} ${r.indexHtmlPath} (${r.recovery}${r.connectionError ? `; ${r.connectionError}` : ""})`,
-          progress: 100,
-        })
-      } else if (r.skipped) {
-        pw.changeLine({
-          type: "default",
-          text: getString("toast-skipped", { args: { title: r.title } }),
-          progress: 100,
-        })
-      } else {
-        pw.changeLine({
-          type: "success",
-          text:
-            getString("toast-done-one", {
-              args: {
-                title: r.title,
-                score: r.score ?? "n/a",
-                provider: r.provider,
-              },
-            }) +
-            (r.bookkeeping === "failed"
-              ? ` — ${getString("review-bookkeeping-failed")} ${r.indexHtmlPath}`
-              : ""),
-          progress: 100,
-        })
-      }
-    } catch (e: any) {
-      if (options.signal.aborted) return
-      pw.changeLine({
-        type: "fail",
-        text: getString("toast-fail", {
-          args: { title, err: reviewErrorMessage(e) },
-        }),
-        progress: 100,
-      })
-      log("단일 처리 실패", e)
-    }
-    pw.startCloseTimer(8000)
+  const active = activeKeys()
+  const fresh = targets.filter((item) => !active.has(item.key))
+  if (fresh.length === 0) {
+    const prompt = Services.prompt
+    const choice = prompt.confirmEx(
+      Zotero.getMainWindow(),
+      getString("review-running-title"),
+      getString("review-running-choice", {
+        args: { title: targets[0].getDisplayTitle() },
+      }),
+      (prompt.BUTTON_POS_0 * prompt.BUTTON_TITLE_IS_STRING) |
+        (prompt.BUTTON_POS_1 * prompt.BUTTON_TITLE_IS_STRING) |
+        prompt.BUTTON_POS_1_DEFAULT,
+      getString("review-restart"),
+      getString("review-wait"),
+      null,
+      null,
+      { value: false },
+    )
+    if (choice === 0) restartReviews(new Set(targets.map((item) => item.key)))
+    showReviewStatus()
     return
   }
-
-  // ── 다중 (순차) ──
-  const N = targets.length
-  let ok = 0,
-    fail = 0,
-    abort = 0,
-    skip = 0
-  let aborted = false
-
-  const pw = reviewProgressWindow(
-    `${config.addonName} — ${getString("toast-batch-header", { args: { n: N } })}`,
-  )
-  run.progress = pw
-  for (const it of targets) {
-    pw.createLine({
+  const settled = enqueueReviews(fresh)
+  toast(config.addonName)
+    .createLine({
       type: "default",
-      text: getString("toast-pending", {
-        args: { title: it.getDisplayTitle() },
+      text: getString("review-queue-added", {
+        args: { n: fresh.length, total: queueJobs().length },
       }),
-      progress: 0,
+      progress: 100,
     })
-  }
-  pw.show()
-  try {
-    ;(pw as any).window?.addEventListener("unload", () => {
-      aborted = true
-    })
-  } catch {
-    /* ignore */
-  }
-
-  for (let i = 0; i < N; i++) {
-    if (options.signal.aborted) return
-    run.targets = targets.slice(i)
-    run.row = i
-    if (aborted) {
-      abort = N - i
-      break
-    }
-    const item = targets[i]
-    const title = item.getDisplayTitle()
-    pw.changeLine({
-      idx: i,
-      type: "default",
-      text: getString("toast-running-batch", {
-        args: { i: i + 1, n: N, title },
-      }),
-      progress: 50,
-    })
-    try {
-      const r = await processItem(item, options)
-      if (r.status === "partial") {
-        fail++
-        pw.changeLine({
-          idx: i,
-          type: "default",
-          text: `${getString(r.recovery === "retry-connections" ? "review-connections-failed" : "review-bookkeeping-failed")} ${r.indexHtmlPath} (${r.recovery}${r.connectionError ? `; ${r.connectionError}` : ""})`,
-          progress: 100,
-        })
-      } else if (r.skipped) {
-        skip++
-        pw.changeLine({
-          idx: i,
-          type: "default",
-          text: getString("toast-skipped", { args: { title: r.title } }),
-          progress: 100,
-        })
-      } else {
-        ok++
-        pw.changeLine({
-          idx: i,
-          type: "success",
-          text:
-            getString("toast-done-line", {
-              args: { title: r.title, score: r.score ?? "n/a" },
-            }) +
-            (r.bookkeeping === "failed"
-              ? ` — ${getString("review-bookkeeping-failed")} ${r.indexHtmlPath}`
-              : ""),
-          progress: 100,
-        })
-      }
-    } catch (e: any) {
-      if (options.signal.aborted) return
-      fail++
-      pw.changeLine({
-        idx: i,
-        type: "fail",
-        text: getString("toast-fail", {
-          args: { title, err: reviewErrorMessage(e) },
-        }),
-        progress: 100,
-      })
-      log(`다중 처리 실패 [${item.id}]`, e)
-    }
-  }
-
-  pw.changeHeadline(
-    getString("toast-batch-summary", { args: { ok, fail, skip, abort } }),
-  )
-  pw.startCloseTimer(10000)
+    .show()
+    .startCloseTimer(6000)
+  void Promise.all(settled).then(() => {
+    // The batch may have grown meanwhile; show it once nothing is left.
+    if (!queueBusy()) showReviewStatus()
+  })
 }
 
 /** 선택 논문의 이미 생성된 review HTML(index.html)을 브라우저로 연다. 생성은 하지 않음. */

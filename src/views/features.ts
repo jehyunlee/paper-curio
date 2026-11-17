@@ -6,7 +6,7 @@ import { findExisting } from "../core/papers-index"
 import { pdfFilePath } from "../extract/pdfjs"
 import { extractTextCached } from "../extract/text"
 import { getString } from "../utils/locale"
-import { processItem } from "../core/pipeline"
+import { enqueueReviews } from "../core/reviewQueue"
 import { featureReportHtml } from "../render/featureReport"
 import { ReviewTaskError, reviewErrorMessage } from "../utils/reviewError"
 
@@ -112,12 +112,15 @@ export async function openFeaturePanel(
           button.addEventListener("click", async () => {
             button.disabled = true
             try {
-              for (const item of reviewItems)
-                result.textContent = JSON.stringify(
-                  await processItem(item),
-                  null,
-                  2,
+              // The shared desktop queue: parallel with any running reviews.
+              const jobs = await Promise.all(enqueueReviews(reviewItems))
+              result.textContent = jobs
+                .map((job) =>
+                  job.result
+                    ? JSON.stringify(job.result, null, 2)
+                    : `${job.title}: ${job.state} ${job.error ? reviewErrorMessage(job.error) : ""}`,
                 )
+                .join("\n\n")
             } catch (error) {
               result.textContent = reviewErrorMessage(error)
             } finally {

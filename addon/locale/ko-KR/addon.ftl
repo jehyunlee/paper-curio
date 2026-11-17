@@ -58,15 +58,11 @@ toast-no-items = 선택된 논문(regular item)이 없습니다.
 toast-no-provider = LLM API key가 설정되지 않았습니다. Settings → Paper Curio에서 Anthropic / OpenAI / Gemini 중 하나를 입력하세요.
 
 # 토스트 — 단일
-toast-running = 리뷰 생성 중: { $title }
-toast-done-one = 리뷰 완료: { $title } (점수 { $score }, { $provider })
 review-needs-pdf = 리뷰 생성 전에 로컬 논문 PDF를 첨부하세요.
-review-already-running = 다른 데스크톱 리뷰가 실행 중입니다. 완료 후 다시 실행하세요.
 review-running-title = 리뷰 생성 중
-review-running-choice = 지금 만들어지고 있는 중입니다. 논문: { $title }. 다시 만들거나 생성을 기다릴 수 있습니다. 다시 만들기는 현재 처리 단계가 안전하게 끝난 뒤 중단하고 이 논문을 새로 생성합니다. 이미 발생한 API 비용은 취소되지 않습니다.
+review-running-choice = 선택한 논문은 이미 리뷰 대기열에 있습니다: { $title }. 처음부터 다시 만들까요, 기다릴까요? 다시 만들기는 현재 처리 단계가 안전하게 끝난 뒤 이 논문을 재생성합니다. 이미 발생한 API 비용은 환불되지 않습니다. 등록까지 끝난 논문은 다시 만들지 않습니다.
 review-restart = 다시 만들기
 review-wait = 생성 기다리기
-review-restarting = 다시 만들기를 요청했습니다. 현재 처리 단계의 안전한 종료를 기다리는 중…
 review-preflight-failed = 리뷰에는 paper-curation, Python 3.12와 선택한 제공자의 API 자격증명이 필요합니다.
 review-execution-failed = 리뷰 실행 실패. 다른 제공자는 호출하지 않았습니다.
 
@@ -77,11 +73,7 @@ toast-skipped = 건너뜀(이미 review 있음): { $title } — 덮어쓰려면 
 toast-fail = 실패: { $title } — { $err }
 
 # 토스트 — 일괄
-toast-batch-header = 일괄 리뷰 생성 ({ $n }건)
-toast-pending = 대기 중: { $title }
-toast-running-batch = 처리 중 ({ $i }/{ $n }): { $title }
 toast-done-line = 리뷰 완료: { $title } ({ $score })
-toast-batch-summary = 완료 — 성공 { $ok } / 건너뜀 { $skip } / 실패 { $fail } / 중단 { $abort }
 
 # 컬렉션 메뉴 — 웹 배포
 collectionmenu-deploy = 이 컬렉션 웹 배포 (Cloudflare)
@@ -176,3 +168,18 @@ toast-citedby-pdf-fail = PDF 첨부 실패: { $err }
 itemmenu-institutions = paper-curation 연구기관 정보 보기
 itemmenu-institutions-tip = 서지 DB의 소속기관·상위기관·도시·국가와 저자별 소속
 toast-institutions-fail = 연구기관 정보를 읽지 못했습니다 ({ $err })
+
+# Review queue — title-bar status
+review-queue-added = 리뷰 대기열에 { $n }편을 추가했습니다(전체 { $total }편, 최대 3편 동시 진행). Zotero 상단의 상태 표시를 누르면 진행 상황을 볼 수 있습니다.
+review-status-running = 리뷰 생성 중 { $done }/{ $total }
+review-status-connecting = 관련 논문 연결 { $done }/{ $total }
+review-status-views = 토픽 페이지 갱신 중({ $total }편)
+review-status-finished = 리뷰 완료 { $ok }/{ $total }
+review-status-failed = · 실패 { $fail }
+review-status-tip = 클릭하면 논문별 진행 상황을 엽니다. 끝난 묶음은 클릭하면 사라집니다.
+review-job-queued = 대기: { $title }
+review-job-reviewing = 리뷰 작성 중: { $title }
+review-job-registered = 리뷰 등록됨, 관련 논문 대기: { $title }
+review-job-connecting = 관련 논문·페이지 갱신 중: { $title }
+review-job-cancelled = 중단됨: { $title }
+review-views-failed = 리뷰와 관련 논문은 저장됐지만 토픽 페이지 갱신이 끝나지 않았습니다. HTML 열기:

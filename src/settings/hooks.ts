@@ -9,6 +9,10 @@ import {
   registerCollectionMenu,
   unregisterCollectionMenu,
 } from "../views/root"
+import {
+  registerReviewStatus,
+  unregisterReviewStatus,
+} from "../views/reviewStatus"
 import { pipeline as log } from "../utils/loggers"
 
 async function onStartup() {
@@ -31,18 +35,21 @@ async function onMainWindowLoad(_win: Window): Promise<void> {
   try {
     registerItemMenu()
     registerCollectionMenu()
+    registerReviewStatus(_win)
   } catch (e) {
     log("register menu 실패", e)
   }
 }
 
 async function onMainWindowUnload(_win: Window): Promise<void> {
+  unregisterReviewStatus(_win)
   unregisterItemMenu()
   unregisterCollectionMenu()
   ztoolkit.unregisterAll()
 }
 
 function onShutdown(): void {
+  unregisterReviewStatus()
   unregisterItemMenu()
   unregisterCollectionMenu()
   ztoolkit.unregisterAll()

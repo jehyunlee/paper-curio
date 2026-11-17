@@ -58,15 +58,11 @@ toast-no-items = No regular items selected.
 toast-no-provider = No LLM API key configured. Set one in Settings → Paper Curio (Anthropic / OpenAI / Gemini).
 
 # Toasts — single
-toast-running = Generating review: { $title }
-toast-done-one = Review ready: { $title } (score { $score }, { $provider })
 review-needs-pdf = Attach a local paper PDF before generating a review.
-review-already-running = Another desktop review is already running. Wait for it to finish before starting another.
 review-running-title = Review generation in progress
-review-running-choice = A review is currently being generated: { $title }. Start over or wait? Restart stops after the current processing stage safely finishes, then regenerates this paper. Already incurred API charges are not refunded.
+review-running-choice = These papers are already in the review queue: { $title }. Start over or wait? Restart stops after the current processing stage safely finishes, then regenerates the paper. Already incurred API charges are not refunded. Papers already registered are not restarted.
 review-restart = Start over
 review-wait = Wait for completion
-review-restarting = Restart requested — waiting for the current processing stage to finish safely…
 review-preflight-failed = Review requires paper-curation, Python 3.12 and the selected provider's API credential.
 review-execution-failed = Review failed; no other provider was called.
 
@@ -77,11 +73,7 @@ toast-skipped = Skipped (review exists): { $title } — enable 'Overwrite existi
 toast-fail = Failed: { $title } — { $err }
 
 # Toasts — batch
-toast-batch-header = Batch review ({ $n })
-toast-pending = Pending: { $title }
-toast-running-batch = Processing ({ $i }/{ $n }): { $title }
 toast-done-line = Review ready: { $title } ({ $score })
-toast-batch-summary = Done — { $ok } ok / { $skip } skipped / { $fail } failed / { $abort } aborted
 
 # Collection menu — web deploy
 collectionmenu-deploy = Web deploy this collection (Cloudflare)
@@ -176,3 +168,18 @@ toast-citedby-pdf-fail = PDF attachment failed: { $err }
 itemmenu-institutions = View Research Institute Info
 itemmenu-institutions-tip = Institution, parent, city and country from the bibliography DB, and each author's affiliation
 toast-institutions-fail = Could not read research institute info ({ $err })
+
+# Review queue — title-bar status
+review-queue-added = Added { $n } paper(s) to the review queue ({ $total } in total, up to 3 at a time). Click the status badge at the top of Zotero to see progress.
+review-status-running = Reviewing { $done }/{ $total }
+review-status-connecting = Related papers { $done }/{ $total }
+review-status-views = Refreshing topic pages ({ $total })
+review-status-finished = Reviews done { $ok }/{ $total }
+review-status-failed = · { $fail } failed
+review-status-tip = Click for per-paper progress. A finished batch disappears once opened.
+review-job-queued = Queued: { $title }
+review-job-reviewing = Writing review: { $title }
+review-job-registered = Review registered, waiting for related papers: { $title }
+review-job-connecting = Related papers and pages: { $title }
+review-job-cancelled = Cancelled: { $title }
+review-views-failed = Review and related papers are saved, but the topic page refresh did not finish. Open HTML:

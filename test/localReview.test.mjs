@@ -38,6 +38,11 @@ const modules = {
       if (request.op === 'register') {
         if (globalThis.state.indexFailure) throw new Error('index failure');
         globalThis.state.entry = request.entry;
+        globalThis.state.deferViews = request.defer_views;
+      }
+      if (request.op === 'refresh_views') {
+        if (globalThis.state.viewFailure) throw new Error('views failed');
+        globalThis.state.refreshed = request.slugs;
       }
       return {};
     }`,
@@ -155,12 +160,14 @@ try {
   assert.equal(done.bibliography, "sidecar-only")
   assert.equal(state.entry.bibliography_status, "sidecar-only")
   assert.equal(done.indexHtmlPath, "/out/index.html")
-  assert.deepEqual(state.transactions, ["reserve", "register"])
+  assert.deepEqual(state.transactions, ["reserve", "register", "refresh_views"])
   assert.equal(
     state.calls[1].request.output_dir,
     "/pc/docs/papers/002_Reserved",
   )
   assert.equal(state.entry.classifications, undefined)
+  assert.equal(state.deferViews, true, "Views wait for the batch pass")
+  assert.deepEqual(state.refreshed, ["002_Reserved"])
   assert.equal(done.connections, 3)
   assert.equal(done.connectionProcessing, "completed")
   assert.deepEqual(state.featureCalls, [
@@ -169,7 +176,7 @@ try {
       request: {
         schema_version: 1,
         feature: "related-papers",
-        params: { slug: "002_Reserved" },
+        params: { slug: "002_Reserved", defer_views: true },
       },
     },
   ])
@@ -202,11 +209,6 @@ try {
   const oldReview = processItem(item, { signal: restartController.signal })
   await new Promise(setImmediate)
   restartController.abort()
-  await assert.rejects(
-    processItem(item),
-    /review-already-running/,
-    "Keep lock until active Python stage completes",
-  )
   finishOldReview()
   await assert.rejects(oldReview, { name: "AbortError" })
   assert.deepEqual(
@@ -233,7 +235,7 @@ try {
   const recovered = await processItem(item)
   assert.equal(recovered.status, "completed")
   assert.equal(recovered.connectionProcessing, "completed")
-  assert.deepEqual(state.transactions, ["reserve", "register"])
+  assert.deepEqual(state.transactions, ["reserve", "register", "refresh_views"])
   assert.equal(state.entry.review_date, "2026-09-01")
 
   reset()
@@ -262,7 +264,7 @@ try {
     assert.equal(pendingLinks.indexHtmlPath, "/out/index.html")
     assert.deepEqual(
       state.transactions,
-      ["reserve", "register"],
+      ["reserve", "register", "refresh_views"],
       "Keep committed review after enrichment failure",
     )
   }
@@ -294,34 +296,15 @@ try {
     false,
     "Review UI must await the connection stage before declaring completion",
   )
-  await assert.rejects(processItem(item), /review-already-running/)
   releaseConnections()
   assert.equal((await pendingProcessing).status, "completed")
 
   reset()
-  const relationAbort = new AbortController()
-  state.waitForConnections = new Promise((resolve) => {
-    releaseConnections = resolve
-  })
-  const oldConnections = processItem(item, { signal: relationAbort.signal })
-  await new Promise(setImmediate)
-  relationAbort.abort()
-  releaseConnections()
-  await assert.rejects(oldConnections, { name: "AbortError" })
-  assert.deepEqual(
-    state.transactions,
-    ["reserve", "register"],
-    "Restart must preserve already committed reviews",
-  )
-
-  reset()
-  const running = processItem(item)
-  await assert.rejects(processItem(item), /review-already-running/)
-  await running
-  assert.deepEqual(
-    state.calls.map((x) => x.execute),
-    [false, false, true],
-  )
+  state.viewFailure = true
+  const viewsPending = await processItem(item)
+  assert.equal(viewsPending.status, "partial")
+  assert.equal(viewsPending.recovery, "retry-views")
+  assert.equal(viewsPending.connectionProcessing, "completed")
 
   reset()
   state.indexFailure = true
@@ -342,7 +325,7 @@ try {
   const markerPartial = await processItem(item)
   assert.equal(markerPartial.status, "partial")
   assert.equal(markerPartial.recovery, "retry-zotero-marker")
-  assert.deepEqual(state.transactions, ["reserve", "register"])
+  assert.deepEqual(state.transactions, ["reserve", "register", "refresh_views"])
   assert.equal(
     markerPartial.connectionProcessing,
     "completed",

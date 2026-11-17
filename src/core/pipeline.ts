@@ -25,7 +25,11 @@ import { ReviewTaskError, reviewStatusError } from "../utils/reviewError"
 
 export interface ProcessResult {
   status: "completed" | "partial" | "skipped"
-  recovery?: "retry-registration" | "retry-zotero-marker" | "retry-connections"
+  recovery?:
+    | "retry-registration"
+    | "retry-zotero-marker"
+    | "retry-connections"
+    | "retry-views"
   slug: string
   title: string
   score?: number
@@ -44,8 +48,6 @@ export interface ProcessResult {
   overwritten?: boolean
 }
 
-let reviewInProgress = false
-
 export interface ReviewRunOptions {
   signal?: AbortSignal
   regenerate?: boolean
@@ -59,25 +61,39 @@ function checkReviewActive(options: ReviewRunOptions): void {
   }
 }
 
-/** Serialize desktop writes; the engine separately locks each output directory. */
+/**
+ * One paper end to end: review, register, related papers and views. The
+ * review queue instead runs `reviewItem` for several papers at once and
+ * `finishReviews` once for the batch.
+ */
 export async function processItem(
   item: Zotero.Item,
   options: ReviewRunOptions = {},
 ): Promise<ProcessResult> {
-  if (reviewInProgress) throw new Error(getString("review-already-running"))
-  reviewInProgress = true
-  try {
-    checkReviewActive(options)
-    return await processLocalItem(item, options)
-  } finally {
-    reviewInProgress = false
-  }
+  checkReviewActive(options)
+  const reviewed = await reviewItem(item, options)
+  if (!isRegistered(reviewed)) return reviewed
+  checkReviewActive(options)
+  const target = await resolveOutputTarget()
+  const [finished] = await finishReviews(target.root, target.papersDir, [
+    reviewed,
+  ])
+  return finished
 }
 
-/** Commit the review first, then run bounded shared connection enrichment. */
-async function processLocalItem(
+/** Registered in the corpus, so related papers and views can follow. */
+export function isRegistered(r: ProcessResult): boolean {
+  return r.status !== "skipped" && r.recovery !== "retry-registration"
+}
+
+/**
+ * Review one paper and register it with its views deferred. Reviews of
+ * different papers may run concurrently: each holds only a shared corpus
+ * lease, and the engine locks its own output directory.
+ */
+export async function reviewItem(
   item: Zotero.Item,
-  options: ReviewRunOptions,
+  options: ReviewRunOptions = {},
 ): Promise<ProcessResult> {
   const meta = getPaperMeta(item)
   const target = await resolveOutputTarget()
@@ -228,6 +244,7 @@ async function processLocalItem(
         slug,
         token: reservation.token,
         entry: { ...fresh, classifications: undefined },
+        defer_views: true,
       })
       registered = true
       checkReviewActive(options)
@@ -241,62 +258,15 @@ async function processLocalItem(
       bookkeeping = "failed"
       log("review files ready; local index/marker update failed", slug)
     }
-    let connections = 0
-    let connectionError: string | undefined
-    let connectionProcessing: ProcessResult["connectionProcessing"] =
-      "not-started"
-    if (registered) {
-      try {
-        checkReviewActive(options)
-        const connected = await featureViaBridge(
-          target.root,
-          {
-            schema_version: 1,
-            feature: "related-papers",
-            params: { slug },
-          },
-          true,
-        )
-        checkReviewActive(options)
-        if (
-          connected.status !== "completed" ||
-          !Number.isInteger(connected.related_count) ||
-          connected.related_count < 0
-        ) {
-          connectionError = [
-            "needs-key",
-            "needs-runtime",
-            "insufficient-data",
-            "budget-exceeded",
-            "budget-unavailable",
-          ].includes(connected.status)
-            ? connected.status
-            : "failed"
-          throw new Error("Connection processing incomplete")
-        }
-        connections = connected.related_count
-        connectionProcessing = "completed"
-      } catch {
-        checkReviewActive(options)
-        connectionProcessing = "failed"
-        connectionError ??= "failed"
-        log("review preserved; related-paper processing requires retry", slug)
-      }
-    }
-    log("review completed", slug)
+    log("review registered", slug)
     return {
-      status:
-        bookkeeping === "failed" || connectionProcessing !== "completed"
-          ? "partial"
-          : "completed",
+      status: bookkeeping === "failed" ? "partial" : "completed",
       recovery:
         bookkeeping === "failed"
           ? registered
             ? "retry-zotero-marker"
             : "retry-registration"
-          : connectionProcessing !== "completed"
-            ? "retry-connections"
-            : undefined,
+          : undefined,
       slug,
       title: meta.title,
       score,
@@ -305,9 +275,8 @@ async function processLocalItem(
       source: target.source,
       hadPdf: true,
       figures: result.figures || 0,
-      connections,
-      connectionProcessing,
-      connectionError,
+      connections: 0,
+      connectionProcessing: "not-started",
       bibliography: "sidecar-only",
       bookkeeping,
       overwritten: !!existing,
@@ -326,4 +295,87 @@ async function processLocalItem(
       }
     }
   }
+}
+
+const CONNECTION_STATUSES = [
+  "needs-key",
+  "needs-runtime",
+  "insufficient-data",
+  "budget-exceeded",
+  "budget-unavailable",
+]
+
+/**
+ * Related papers for each registered review, then one view pass for the
+ * whole batch. Every paper of the batch is registered before any connection
+ * is computed, so new papers can be each other's related papers. Needs the
+ * exclusive corpus lease: no review may be running.
+ */
+export type FinishProgress =
+  | { stage: "connections"; done: number; total: number }
+  | { stage: "views"; total: number }
+
+export async function finishReviews(
+  root: string,
+  papersDir: string,
+  reviewed: ProcessResult[],
+  onProgress?: (progress: FinishProgress) => void,
+): Promise<ProcessResult[]> {
+  const results = reviewed.map((r) => ({ ...r }))
+  for (const [done, r] of results.entries()) {
+    onProgress?.({ stage: "connections", done, total: results.length })
+    try {
+      const connected = await featureViaBridge(
+        root,
+        {
+          schema_version: 1,
+          feature: "related-papers",
+          params: { slug: r.slug, defer_views: true },
+        },
+        true,
+      )
+      if (
+        connected.status !== "completed" ||
+        !Number.isInteger(connected.related_count) ||
+        connected.related_count < 0
+      ) {
+        r.connectionError = CONNECTION_STATUSES.includes(connected.status)
+          ? connected.status
+          : "failed"
+        throw new Error("Connection processing incomplete")
+      }
+      r.connections = connected.related_count
+      r.connectionProcessing = "completed"
+    } catch {
+      r.connectionProcessing = "failed"
+      r.connectionError ??= "failed"
+      log("review preserved; related-paper processing requires retry", r.slug)
+    }
+  }
+  let viewsOk = false
+  onProgress?.({ stage: "views", total: results.length })
+  try {
+    await corpusViaBridge(root, {
+      op: "refresh_views",
+      papers_dir: papersDir,
+      slugs: results.map((r) => r.slug),
+    })
+    viewsOk = true
+  } catch {
+    log(
+      "reviews preserved; topic view refresh requires retry",
+      results.map((r) => r.slug),
+    )
+  }
+  for (const r of results) {
+    if (r.recovery === "retry-zotero-marker") continue
+    if (r.connectionProcessing !== "completed") {
+      r.status = "partial"
+      r.recovery = "retry-connections"
+    } else if (!viewsOk) {
+      r.status = "partial"
+      r.recovery = "retry-views"
+    }
+  }
+  return results
 }

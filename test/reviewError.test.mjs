@@ -64,87 +64,38 @@ try {
   )
   assert.match(reviewErrorMessage(new ReferenceError(opaque)), /ReferenceError/)
   const root = await readFile("src/views/root.ts", "utf8")
-  const helper = root.match(
-    /function reviewProgressWindow\(headline: string\) \{[\s\S]*?\n\}/,
-  )
-  assert.ok(helper, "Review progress uses its own persistent window")
-  const compiled = await transform(helper[0], { loader: "ts" })
-  const windows = []
-  const makeWindow = new Function(
-    "ztoolkit",
-    compiled.code + "\nreturn reviewProgressWindow;",
-  )({
-    ProgressWindow: class {
-      constructor(headline, options) {
-        this.headline = headline
-        this.options = options
-        windows.push(this)
-      }
-    },
-  })
-  const progress = makeWindow("Review Generation")
-  assert.equal(progress.headline, "Review Generation")
-  assert.equal(
-    progress.options.closeOnClick,
-    false,
-    "Clicking progress must not dismiss an active review",
-  )
-  assert.equal(progress.options.closeTime, -1, "No timer until review finishes")
-  assert.equal(
-    progress.options.closeOtherProgressWindows,
-    false,
-    "Do not close Zotero's other tasks",
-  )
-  assert.equal(windows.length, 1)
-  const guard = root.match(
+  const handler = root.match(
     /async function onReviewCommand\(\): Promise<void> \{[\s\S]*?\n\}/,
   )
-  assert.ok(guard)
-  const guardedCode = await transform("let activeReviewRun;\n" + guard[0], {
-    loader: "ts",
-  })
-  let starts = 0
-  let finish
-  let fail = false
+  assert.ok(handler, "Review Generation hands papers to the queue")
+  const compiled = await transform(handler[0], { loader: "ts" })
+  let active = new Set()
   let choice = 1
   let prompts = 0
-  let closed = 0
-  let workers = 0
-  const runs = []
-  const selected = [{ getDisplayTitle: () => "Original paper" }]
+  const enqueued = []
+  const restarted = []
+  let statusShown = 0
+  let toasts = 0
+  const selected = [
+    { key: "A", getDisplayTitle: () => "Paper A" },
+    { key: "B", getDisplayTitle: () => "Paper B" },
+  ]
   const invoke = new Function(
-    "runReviewCommand",
     "Services",
     "Zotero",
     "getString",
     "getSelectedRegularItems",
-    guardedCode.code + "\nreturn onReviewCommand;",
+    "requirePaperCuration",
+    "activeKeys",
+    "enqueueReviews",
+    "restartReviews",
+    "showReviewStatus",
+    "queueJobs",
+    "queueBusy",
+    "toast",
+    "config",
+    compiled.code + "\nreturn onReviewCommand;",
   )(
-    async (run) => {
-      starts++
-      if (fail) throw new Error("preflight failed")
-      assert.equal(
-        workers,
-        0,
-        "Restart must wait for previous worker and cleanup",
-      )
-      workers++
-      runs.push({
-        signal: run.controller.signal,
-        regenerate: run.regenerate,
-        targets: run.targets,
-      })
-      run.progress = {
-        changeLine() {},
-        close() {
-          closed++
-        },
-      }
-      await new Promise((resolve) => {
-        finish = resolve
-      })
-      workers--
-    },
     {
       prompt: {
         BUTTON_POS_0: 1,
@@ -163,64 +114,46 @@ try {
     { getMainWindow: () => ({}) },
     (key) => key,
     () => selected,
+    async () => true,
+    () => active,
+    (items) => {
+      enqueued.push(items.map((item) => item.key))
+      for (const item of items) active.add(item.key)
+      return items.map(() => new Promise(() => {}))
+    },
+    (keys) => restarted.push([...keys]),
+    () => statusShown++,
+    () => [...active],
+    () => true,
+    () => {
+      toasts++
+      const line = {
+        createLine: () => line,
+        show: () => line,
+        startCloseTimer: () => line,
+      }
+      return line
+    },
+    { addonName: "Paper Curio" },
   )
-  const active = invoke()
   await invoke()
-  assert.equal(
-    starts,
-    1,
-    "Repeated click leaves the active task and progress window alone",
-  )
+  assert.deepEqual(enqueued, [["A", "B"]])
+  assert.equal(prompts, 0, "Starting a review never opens a modal")
+  assert.equal(toasts, 1)
+  await invoke()
+  assert.equal(enqueued.length, 1, "Queued papers are not queued twice")
   assert.equal(prompts, 1)
-  assert.equal(
-    runs[0].signal.aborted,
-    false,
-    "Wait leaves active work unchanged",
-  )
+  assert.deepEqual(restarted, [], "Wait leaves queued work unchanged")
+  assert.equal(statusShown, 1, "A repeated click shows the queue status")
   choice = 0
   await invoke()
+  assert.deepEqual(restarted, [["A", "B"]], "Restart regenerates the selection")
+  active = new Set(["A"])
   await invoke()
-  assert.equal(
-    starts,
-    1,
-    "Restart does not run in parallel or queue duplicates",
-  )
-  assert.equal(runs[0].signal.aborted, true)
-  finish()
-  await new Promise(setImmediate)
-  assert.equal(starts, 2)
-  assert.equal(runs[1].regenerate, true)
-  assert.equal(
-    runs[1].targets,
-    selected,
-    "Restart retains the active paper selection",
-  )
-  assert.equal(closed, 1)
-  finish()
-  await active
-  fail = true
-  await assert.rejects(invoke(), /preflight failed/)
-  fail = false
-  const retry = invoke()
-  assert.equal(
-    starts,
-    4,
-    "The menu becomes usable again after success or failure",
-  )
-  finish()
-  await retry
-  const reviewHandler = root.slice(
-    root.indexOf("async function runReviewCommand"),
-    root.indexOf("async function onOpenReviewCommand"),
-  )
-  assert.equal(
-    (reviewHandler.match(/reviewProgressWindow\(/g) || []).length,
-    2,
-    "Both single and batch reviews persist",
-  )
-  assert.ok(
-    reviewHandler.includes("pw.startCloseTimer(8000)"),
-    "Finished single review still closes automatically",
+  assert.deepEqual(
+    enqueued[1],
+    ["B"],
+    "Only papers not already queued are added",
   )
   console.log(
     "PASS: actionable review codes have both locales; arbitrary exception details remain private",
